@@ -1,17 +1,20 @@
-use cgmath::{Deg, InnerSpace, Matrix3, Point3, Rad, SquareMatrix, Vector2, Vector3};
-use finger_paint_wgpu::{Camera, ColorMeshInstance, Lighting, Paragraph, RealLightApi, RealLightPublic, Render, Resize, TextSection, Transform, ColorVertex, ViewMatrixMode, WgpuRenderer, UvVertex, SimpleLight, SimpleLightApi, SimpleLightKind};
+use cgmath::{Matrix3, Point3, Vector3};
+use finger_paint_wgpu::cgmath::{Deg, InnerSpace, Rad, SquareMatrix, Vector2};
+use finger_paint_wgpu::{
+    Camera, ColorMeshInstance, ColorVertex, HorizontalAlign, Lighting, Paragraph, RealLightApi,
+    RealLightPublic, Resize, SimpleLight, SimpleLightKind, TextSection, Transform, UvVertex,
+    VerticalAlign, ViewMatrixMode, WgpuRenderer,
+};
 use simple_winit::input::{Input, VirtualKeyCode};
+use simple_winit::InputEvent;
 use std::f32::consts::PI;
 use std::time::Duration;
-use wgpu_glyph::{HorizontalAlign, VerticalAlign};
 
 pub struct State {
     renderer: WgpuRenderer,
     time: f32,
     cube_model: usize,
-    cube: usize,
     cube_2: usize,
-    player_cube: usize,
     camera_controller: CameraController,
     average_frame_time: f32,
 }
@@ -19,12 +22,10 @@ pub struct State {
 impl State {
     pub fn new(window: &simple_winit::winit::window::Window) -> Self {
         Self {
-            renderer: WgpuRenderer::new(window),
+            renderer: WgpuRenderer::new(window, Some(std::path::PathBuf::from("./"))),
             time: 0.0,
             cube_model: 0,
-            cube: 0,
             cube_2: 0,
-            player_cube: 0,
             camera_controller: CameraController {
                 speed: 5.0,
                 mouse_sens: 0.005,
@@ -40,17 +41,21 @@ impl State {
 impl simple_winit::WindowLoop for State {
     fn init(&mut self) {
         let (cube_vertex_data, cube_index_data) = create_cube();
-        self.cube_model = self.renderer.add_color_mesh(cube_vertex_data, cube_index_data);
+        self.cube_model = self
+            .renderer
+            .load_color_mesh(cube_vertex_data, Some(cube_index_data));
         let (plane_vertex_data, plane_index_data) = create_plane(20.0);
-        let plane_model = self.renderer.add_color_mesh(plane_vertex_data, plane_index_data);
+        let plane_model = self
+            .renderer
+            .load_color_mesh(plane_vertex_data, Some(plane_index_data));
 
         build_box(self, plane_model);
 
-        self.cube_2 = self.renderer.add_color_mesh_instance(
-            self.cube_model,
-            ColorMeshInstance {
+        self.renderer
+            .color_mesh_instances(self.cube_model)
+            .push(ColorMeshInstance {
                 transform: Transform {
-                    position: Point3::new(0.9, 0.5, 2.0),
+                    position: Vector3::new(0.9, 0.5, 2.0),
                     rotation: Matrix3::from_axis_angle(Vector3::unit_x(), Deg(0.01)),
                     scale: Vector3::new(1.0, 0.5, 1.0),
                 },
@@ -59,49 +64,17 @@ impl simple_winit::WindowLoop for State {
                     specular_spread: 32.0,
                     diffuse_strength: 1.0,
                 },
-            },
-        );
-
-        self.cube = self.renderer.add_color_mesh_instance(
-            self.cube_model,
-            ColorMeshInstance {
-                transform: Transform {
-                    position: Point3::new(0.0, 0.0, 0.0),
-                    rotation: Matrix3::identity(),
-                    scale: Vector3::new(1.0, 1.0, 1.0),
-                },
-                lighting: Lighting {
-                    specular_strength: 2.0,
-                    specular_spread: 64.0,
-                    diffuse_strength: 1.0,
-                },
-            },
-        );
-
-        self.player_cube = self.renderer.add_color_mesh_instance(
-            self.cube_model,
-            ColorMeshInstance {
-                transform: Transform {
-                    position: Point3::new(0.0, 0.0, 0.0),
-                    rotation: Matrix3::identity(),
-                    scale: Vector3::new(0.1, 0.1, 0.1),
-                },
-                lighting: Lighting {
-                    specular_strength: 2.0,
-                    specular_spread: 64.0,
-                    diffuse_strength: 1.0,
-                },
-            },
-        );
+            });
+        self.cube_2 = self.renderer.color_mesh_instances(self.cube_model).len() - 1;
 
         self.renderer.update_color_mesh(plane_model);
         self.renderer.update_color_mesh(self.cube_model);
 
-        self.renderer.add_color_mesh_instance(
-            self.cube_model,
-            ColorMeshInstance {
+        self.renderer
+            .color_mesh_instances(self.cube_model)
+            .push(ColorMeshInstance {
                 transform: Transform {
-                    position: Point3::new(0.0, 20.0, 0.0),
+                    position: Vector3::new(0.0, 20.0, 0.0),
                     rotation: Matrix3::identity(),
                     scale: Vector3::new(0.1, 0.1, 0.1),
                 },
@@ -110,38 +83,41 @@ impl simple_winit::WindowLoop for State {
                     specular_spread: 64.0,
                     diffuse_strength: 1.0,
                 },
-            },
+            });
+        let uv_mesh = self.renderer.load_uv_mesh(
+            vec![
+                UvVertex::new(
+                    Vector3::new(0.0, 0.0, 0.0),
+                    Vector3::new(0.0, 1.0, 0.0),
+                    Vector2::new(0.0, 0.0),
+                ),
+                UvVertex::new(
+                    Vector3::new(1.0, 0.0, 0.0),
+                    Vector3::new(0.0, 1.0, 0.0),
+                    Vector2::new(0.0, 1.0),
+                ),
+                UvVertex::new(
+                    Vector3::new(0.0, 0.0, 1.0),
+                    Vector3::new(0.0, 1.0, 0.0),
+                    Vector2::new(1.0, 0.0),
+                ),
+                UvVertex::new(
+                    Vector3::new(1.0, 0.0, 1.0),
+                    Vector3::new(0.0, 1.0, 0.0),
+                    Vector2::new(1.0, 1.0),
+                ),
+            ],
+            Some(vec![2, 1, 0, 1, 2, 3]),
+            "grass_side.png",
         );
-        let uv_mesh = self.renderer.add_uv_mesh(vec![
-            UvVertex::new(
-                Vector3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                Vector2::new(0.0, 0.0)
-            ),
-            UvVertex::new(
-                Vector3::new(1.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                Vector2::new(0.0, 1.0)
-            ),
-            UvVertex::new(
-                Vector3::new(0.0, 0.0, 1.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                Vector2::new(1.0, 0.0)
-            ),
-            UvVertex::new(
-                Vector3::new(1.0, 0.0, 1.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                Vector2::new(1.0, 1.0)
-            )
-        ], vec![2, 1, 0, 1, 2, 3]);
-        self.renderer.add_uv_mesh_instance(uv_mesh, Transform {
-            position: Point3::new(0.0, 2.0, 2.0),
+        self.renderer.uv_mesh_instances(uv_mesh).push(Transform {
+            position: Vector3::new(0.0, 2.0, 2.0),
             rotation: Matrix3::identity(),
-            scale: Vector3::new(1.0, 1.0, 1.0) * 2.0
+            scale: Vector3::new(1.0, 1.0, 1.0) * 2.0,
         });
         self.renderer.update_uv_mesh(uv_mesh);
-        self.renderer.add_simple_light(SimpleLight {
-            color: [1.0, 0.75, 0.0, 1.0],
+        self.renderer.simple_lights().push(SimpleLight {
+            color: [1.0, 0.75, 0.0, 1.0].into(),
             kind: SimpleLightKind::Directional([0.0, -1.0, 1.0]),
             constant: 1.00,
             linear: 0.01,
@@ -156,7 +132,7 @@ impl simple_winit::WindowLoop for State {
             sections: vec![TextSection {
                 text: format!("frametime: {}ms, {}fps", 0.0, 0.0),
                 color: [0.0, 0.0, 0.0, 1.0],
-                scale: 30.0,
+                scale: 50.0,
                 font: Default::default(),
             }],
         });
@@ -175,25 +151,21 @@ impl simple_winit::WindowLoop for State {
             self.average_frame_time * 1000.0,
             1.0 / self.average_frame_time
         );
-        self.renderer
-            .color_mesh_instance(self.cube_model, self.cube)
+        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
             .transform
             .position[1] = self.time.cos() * 2.0;
 
-        let rotation: Matrix3<f32> = self
-            .renderer
-            .color_mesh_instance(self.cube_model, self.cube_2)
+        let rotation: Matrix3<f32> = self.renderer.color_mesh_instances(self.cube_model)
+            [self.cube_2]
             .transform
             .rotation;
-        self.renderer
-            .color_mesh_instance(self.cube_model, self.cube_2)
+        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
             .transform
             .rotation = Matrix3::from_angle_x(Rad(dt)) * rotation;
 
-        self.renderer
-            .color_mesh_instance(self.cube_model, self.cube_2)
+        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
             .transform
-            .position = Point3::new(
+            .position = Vector3::new(
             self.time.cos() * 5.0,
             (self.time + self.time.sin()).cos() * 5.0 + 20.0,
             self.time.sin() * 5.0,
@@ -201,11 +173,6 @@ impl simple_winit::WindowLoop for State {
 
         self.camera_controller
             .update(dt, self.renderer.camera(), input);
-
-        self.renderer
-            .color_mesh_instance(self.cube_model, self.player_cube)
-            .transform
-            .position = self.renderer.camera().get_position();
 
         self.renderer.update_color_mesh(self.cube_model);
 
@@ -216,6 +183,8 @@ impl simple_winit::WindowLoop for State {
         self.renderer.render();
     }
     fn on_close(&mut self) {}
+
+    fn input_event(&mut self, _event: InputEvent) {}
 }
 
 fn main() {
@@ -226,38 +195,39 @@ fn main() {
     simple_winit::start(state, (window, event_loop));
 }
 
+#[rustfmt::skip]
 pub fn create_cube() -> (Vec<ColorVertex>, Vec<u16>) {
     let vertex_data = [
         // top (0, 0, 1)
-        ColorVertex::new([-1.0, -1.0, 1.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, -1.0, 1.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, 1.0, 1.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, 1.0, 1.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([-1.0, -1.0, 1.0].into(),[0.0, 0.0, 1.0].into(),[1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, -1.0, 1.0].into(),[0.0, 0.0, 1.0].into(),[1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, 1.0, 1.0].into(),[0.0, 0.0, 1.0].into(),[1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, 1.0, 1.0].into(),[0.0, 0.0, 1.0].into(),[1.0, 1.0, 1.0, 1.0].into()),
         // bottom (0, 0, -1)
-        ColorVertex::new([-1.0, 1.0, -1.0], [0.0, 0.0, -1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, 1.0, -1.0], [0.0, 0.0, -1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, -1.0, -1.0], [0.0, 0.0, -1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, -1.0, -1.0], [0.0, 0.0, -1.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([-1.0, 1.0, -1.0].into(),[0.0, 0.0, -1.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, 1.0, -1.0].into(), [0.0, 0.0, -1.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, -1.0, -1.0].into(), [0.0, 0.0, -1.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, -1.0, -1.0].into(), [0.0, 0.0, -1.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
         // right (1, 0, 0)
-        ColorVertex::new([1.0, -1.0, -1.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, 1.0, -1.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, -1.0, 1.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([1.0, -1.0, -1.0].into(), [1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, 1.0, -1.0].into(), [1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, 1.0, 1.0].into(), [1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, -1.0, 1.0].into(), [1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
         // left (-1, 0, 0)
-        ColorVertex::new([-1.0, -1.0, 1.0], [-1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, 1.0, 1.0], [-1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, 1.0, -1.0], [-1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, -1.0, -1.0], [-1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([-1.0, -1.0, 1.0].into(), [-1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, 1.0, 1.0].into(), [-1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, 1.0, -1.0].into(), [-1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, -1.0, -1.0].into(), [-1.0, 0.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
         // front (0, 1, 0)
-        ColorVertex::new([1.0, 1.0, -1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, 1.0, -1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, 1.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, 1.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([1.0, 1.0, -1.0].into(), [0.0, 1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, 1.0, -1.0].into(), [0.0, 1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, 1.0, 1.0].into(), [0.0, 1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, 1.0, 1.0].into(), [0.0, 1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
         // back (0, -1, 0)
-        ColorVertex::new([1.0, -1.0, 1.0], [0.0, -1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, -1.0, 1.0], [0.0, -1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-1.0, -1.0, -1.0], [0.0, -1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([1.0, -1.0, -1.0], [0.0, -1.0, 0.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new([1.0, -1.0, 1.0].into(), [0.0, -1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, -1.0, 1.0].into(), [0.0, -1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([-1.0, -1.0, -1.0].into(), [0.0, -1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
+        ColorVertex::new([1.0, -1.0, -1.0].into(), [0.0, -1.0, 0.0].into(), [1.0, 1.0, 1.0, 1.0].into()),
     ];
 
     let index_data: &[u16] = &[
@@ -274,10 +244,26 @@ pub fn create_cube() -> (Vec<ColorVertex>, Vec<u16>) {
 
 pub fn create_plane(size: f32) -> (Vec<ColorVertex>, Vec<u16>) {
     let vertex_data = [
-        ColorVertex::new([size, -size, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([size, size, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-size, -size, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
-        ColorVertex::new([-size, size, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]),
+        ColorVertex::new(
+            [size, -size, 0.0].into(),
+            [0.0, 0.0, 1.0].into(),
+            [1.0, 1.0, 1.0, 1.0].into(),
+        ),
+        ColorVertex::new(
+            [size, size, 0.0].into(),
+            [0.0, 0.0, 1.0].into(),
+            [1.0, 1.0, 1.0, 1.0].into(),
+        ),
+        ColorVertex::new(
+            [-size, -size, 0.0].into(),
+            [0.0, 0.0, 1.0].into(),
+            [1.0, 1.0, 1.0, 1.0].into(),
+        ),
+        ColorVertex::new(
+            [-size, size, 0.0].into(),
+            [0.0, 0.0, 1.0].into(),
+            [1.0, 1.0, 1.0, 1.0].into(),
+        ),
     ];
 
     let index_data: &[u16] = &[0, 1, 2, 2, 1, 3];
@@ -325,7 +311,7 @@ impl CameraController {
             self.pitch.sin(),
             self.pitch.cos() * self.heading.cos(),
         ));
-        let direction: Vector3<f32> = camera.get_direction().into();
+        let direction: Vector3<f32> = camera.get_direction();
         let plane_direction = Vector3::new(direction.x, 0.0, direction.z).normalize();
         let right = Vector3::new(
             (self.heading - PI / 2.0).sin(),
@@ -362,206 +348,63 @@ impl CameraController {
 
 fn add_point_light(state: &mut State, pos: Point3<f32>) {
     let fov: f32 = PI / 2.0;
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(1.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [1.0, 0.0, 0.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(-1.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [0.0, 1.0, 1.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(0.0, 1.0, 0.0),
-                Vector3::new(0.0, 0.0, 1.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [0.0, 1.0, 0.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(0.0, -1.0, 0.0),
-                Vector3::new(0.0, 0.0, 1.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [1.0, 0.0, 1.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(0.0, 0.0, -1.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [1.0, 1.0, 0.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
-    state
-        .renderer
-        .add_real_light(RealLightPublic {
-            camera: Camera::new(
-                pos,
-                pos + Vector3::new(0.0, 0.0, 1.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                1.0,
-                ViewMatrixMode::Perspective {
-                    near: 0.1,
-                    far: 100.0,
-                    fov,
-                },
-            ),
-            color: [0.0, 0.0, 1.0, 1.0],
-            default: 0.0,
-        })
-        .unwrap();
+    #[rustfmt::skip]
+    let lights = [
+        (Vector3::new( 1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 0.0, 0.0, 1.0]),
+        (Vector3::new(-1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 1.0, 1.0, 1.0]),
+        (Vector3::new( 0.0,  1.0,  0.0), Vector3::new(0.0, 0.0, 1.0), [0.0, 1.0, 0.0, 1.0]),
+        (Vector3::new( 0.0, -1.0,  0.0), Vector3::new(0.0, 0.0, 1.0), [1.0, 0.0, 1.0, 1.0]),
+        (Vector3::new( 0.0,  0.0, -1.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 1.0, 0.0, 1.0]),
+        (Vector3::new( 0.0,  0.0,  1.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 0.0, 1.0, 1.0])
+    ];
+    for light in &lights {
+        state
+            .renderer
+            .add_real_light(RealLightPublic {
+                camera: Camera::new(
+                    pos,
+                    pos + light.0,
+                    light.1,
+                    1.0,
+                    ViewMatrixMode::Perspective {
+                        near: 0.1,
+                        far: 100.0,
+                        fov,
+                    },
+                ),
+                color: light.2,
+                default: 0.0,
+            })
+            .unwrap();
+    }
 }
 
 fn build_box(state: &mut State, plane_model: usize) {
+    #[rustfmt::skip]
+    let planes: [(Vector3<f32>, Matrix3<f32>); 6] = [
+        (Vector3::new(-20.0, 20.0,   0.0), Matrix3::from_angle_y(Rad( PI / 2.0))),
+        (Vector3::new( 20.0, 20.0,   0.0), Matrix3::from_angle_y(Rad(-PI / 2.0))),
+        (Vector3::new( 0.0 , 20.0, -20.0), Matrix3::identity    (                    )),
+        (Vector3::new( 0.0 , 20.0,  20.0), Matrix3::from_angle_x(Rad( PI      ))),
+        (Vector3::new( 0.0 ,  0.0,   0.0), Matrix3::from_angle_x(Rad(-PI / 2.0))),
+        (Vector3::new( 0.0 , 40.0,   0.0), Matrix3::from_angle_x(Rad( PI / 2.0))),
+    ];
     let plane_scale: Vector3<f32> = Vector3::new(1.0, 1.0, 1.0);
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(-20.0, 20.0, 0.0),
-                rotation: Matrix3::from_angle_y(Rad(PI / 2.0)),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(20.0, 20.0, 0.0),
-                rotation: Matrix3::from_angle_y(Rad(-PI / 2.0)),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(0.0, 20.0, -20.0),
-                rotation: Matrix3::identity(),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(0.0, 20.0, 20.0),
-                rotation: Matrix3::from_angle_x(Rad(PI)),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(0.0, 0.0, 0.0),
-                rotation: Matrix3::from_angle_x(Rad(-PI / 2.0)),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
-    state.renderer.add_color_mesh_instance(
-        plane_model,
-        ColorMeshInstance {
-            transform: Transform {
-                position: Point3::new(0.0, 40.0, 0.0),
-                rotation: Matrix3::from_angle_x(Rad(PI / 2.0)),
-                scale: plane_scale,
-            },
-            lighting: Lighting {
-                specular_strength: 1.0,
-                specular_spread: 32.0,
-                diffuse_strength: 1.0,
-            },
-        },
-    );
+    for plane in &planes {
+        state
+            .renderer
+            .color_mesh_instances(plane_model)
+            .push(ColorMeshInstance {
+                transform: Transform {
+                    position: plane.0,
+                    rotation: plane.1,
+                    scale: plane_scale,
+                },
+                lighting: Lighting {
+                    specular_strength: 1.0,
+                    specular_spread: 32.0,
+                    diffuse_strength: 1.0,
+                },
+            });
+    }
 }

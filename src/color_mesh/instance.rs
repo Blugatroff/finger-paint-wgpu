@@ -1,5 +1,5 @@
+use crate::transform::Transform;
 use bytemuck::{Pod, Zeroable};
-use cgmath::{EuclideanSpace, Matrix3, Matrix4, Point3, Vector3};
 use wgpu::{VertexBufferLayout, VertexFormat};
 
 #[derive(Copy, Clone, Debug)]
@@ -18,14 +18,14 @@ pub struct Lighting {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct InstanceRaw {
+pub struct ColorInstanceRaw {
     mat: [[f32; 4]; 4],
     specular_strength: f32,
     specular_spread: f32,
     diffuse_strength: f32,
 }
 
-impl From<&ColorMeshInstance> for InstanceRaw {
+impl From<&ColorMeshInstance> for ColorInstanceRaw {
     fn from(instance: &ColorMeshInstance) -> Self {
         Self {
             mat: (&instance.transform).into(),
@@ -36,7 +36,7 @@ impl From<&ColorMeshInstance> for InstanceRaw {
     }
 }
 
-impl InstanceRaw {
+impl ColorInstanceRaw {
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
@@ -79,27 +79,5 @@ impl InstanceRaw {
                 },
             ],
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Transform {
-    pub position: Point3<f32>,
-    pub rotation: Matrix3<f32>,
-    pub scale: Vector3<f32>,
-}
-impl From<&Transform> for Matrix4<f32> {
-    fn from(instance: &Transform) -> Self {
-        let rotation_matrix: Matrix4<f32> = Matrix4::from(instance.rotation);
-
-        Matrix4::from_translation(instance.position.to_vec())
-            * rotation_matrix
-            * Matrix4::from_nonuniform_scale(instance.scale.x, instance.scale.y, instance.scale.z)
-    }
-}
-impl From<&Transform> for [[f32; 4]; 4] {
-    fn from(instance: &Transform) -> Self {
-        let mat: Matrix4<f32> = instance.into();
-        mat.into()
     }
 }

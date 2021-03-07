@@ -1,7 +1,7 @@
+use crate::color_mesh::instance::{ColorInstanceRaw, ColorMeshInstance};
 use crate::color_mesh::ColorVertex;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{Buffer, BufferDescriptor, BufferUsage, Device};
-use crate::color_mesh::instance::{ColorMeshInstance, ColorInstanceRaw};
 
 use cgmath::Vector3;
 
@@ -9,7 +9,8 @@ pub struct ColorMesh {
     pub color: Vector3<f32>,
     pub instances: Vec<ColorMeshInstance>,
     pub vertex_buf: wgpu::Buffer,
-    pub index_buf: wgpu::Buffer,
+    pub index_buf: Option<wgpu::Buffer>,
+    pub vertex_count: usize,
     pub index_count: usize,
     pub instance_buffer: Buffer,
     pub instances_in_buffer: usize,
@@ -19,7 +20,7 @@ impl ColorMesh {
     pub fn from_vertices_and_indices(
         device: &Device,
         vertices: Vec<ColorVertex>,
-        indices: Vec<u16>,
+        indices: Option<Vec<u16>>,
     ) -> Self {
         let instances = vec![];
         let instance_buffer = device.create_buffer(&BufferDescriptor {
@@ -36,12 +37,17 @@ impl ColorMesh {
                 contents: bytemuck::cast_slice(&vertices),
                 usage: BufferUsage::VERTEX,
             }),
-            index_buf: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            index_buf: indices.as_ref().map(|indices| device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Cubes Index Buffer"),
                 contents: bytemuck::cast_slice(&indices),
                 usage: BufferUsage::INDEX,
-            }),
-            index_count: indices.len(),
+            })),
+            vertex_count: vertices.len(),
+            index_count: if let Some(indices) = indices {
+                indices.len()
+            } else {
+                0
+            },
             instances_in_buffer: instances.len(),
             instances,
             instance_buffer,

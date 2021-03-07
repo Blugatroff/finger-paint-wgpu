@@ -1,20 +1,24 @@
 [package]
 name = "finger_paint_wgpu"
 version = "0.2.0"
-authors = ["Jasper Reef <jasper.reef@gmx.de>"]
+authors = ["jasper"]
 edition = "2018"
 
+[features]
+hot_reload_shader = ["notify", "shaderc"]
+
 [dependencies]
-futures = "*"
-winit = "*"
+futures = "0.3.13"
+winit = "0.24.0"
 bytemuck = { version = "1.4", features = ["derive"] }
 cgmath = "0.18.0"
 wgpu = "0.7.0"
 async-executor = "1.0"
 wgpu-subscriber = "0.1"
-log = "*"
-pollster = "*"
-simple_winit = { path = "../simple_winit/" }
+simple_winit = { git = "https://github.com/Blugatroff/simple-winit", branch = "main" }
 wgpu_glyph = "0.11.0"
-image = "*"
-notify = "4.0.15"
+image = "0.23.14"
+tobj = "2.0.3"
+
+notify = { version = "4.0.15", optional = true }
+shaderc = { version = "0.7.1", optional = true }

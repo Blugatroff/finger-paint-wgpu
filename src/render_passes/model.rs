@@ -1,47 +1,30 @@
-use crate::constants::{DEPTH_FORMAT, SHADOW_FORMAT};
-use crate::instance::InstanceRaw;
-use crate::uniforms::GlobalUniforms;
-use crate::Pass;
-use wgpu::util::DeviceExt;
-use wgpu::{
-    Buffer, Device, Sampler, ShaderModule, SwapChainDescriptor, TextureView, VertexBufferLayout,
-};
+use super::*;
 
 #[allow(clippy::too_many_arguments)]
-pub fn create_render_passes(
+pub fn create_model_render_passes(
     device: &Device,
-    vertex_layout_descriptor: VertexBufferLayout,
-    real_light_uniform_size: wgpu::BufferAddress,
     global_uniforms: &GlobalUniforms,
     real_lights_storage_buffer: &Buffer,
     simple_lights_storage_buffer: &Buffer,
     shadow_view: &TextureView,
     shadow_sampler: &Sampler,
     sc_desc: &SwapChainDescriptor,
-    shader: ShaderModule,
+    shaders: &ShaderCompiler,
 ) -> (Pass, Pass) {
+    let bake_shader = shaders.get_shader("model_bake");
+    let vs_shader = shaders.get_shader("model_vs");
+    let fs_shader = shaders.get_shader("model_fs");
+    //let diffuse_texture_bind_group_layout = texture::;
     let uniform_size = std::mem::size_of::<GlobalUniforms>() as wgpu::BufferAddress;
     // Create pipeline layout
+    let diffuse_texture_bind_group_layout = Material::layout(device);
     let shadow_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("global uniform layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0, // global
-                visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(uniform_size),
-                },
-                count: None,
-            }],
-        });
+        create_shadow_bind_group_layout(device);
     let shadow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow"),
         bind_group_layouts: &[&shadow_bind_group_layout],
         push_constant_ranges: &[],
     });
-
     // this buffer is not yet initialized
     let shadow_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -60,15 +43,14 @@ pub fn create_render_passes(
         }],
         label: None,
     });
-
     // Create the render pipeline for the shadow passes
     let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("shadow pass pipeline"),
         layout: Some(&shadow_pipeline_layout),
         vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_bake",
-            buffers: &[vertex_layout_descriptor.clone(), InstanceRaw::desc()],
+            module: bake_shader,
+            entry_point: "main",
+            buffers: &[ModelVertex::desc(), InstanceRaw::desc()],
         },
         fragment: None,
         primitive: wgpu::PrimitiveState {
@@ -91,7 +73,6 @@ pub fn create_render_passes(
         }),
         multisample: wgpu::MultisampleState::default(),
     });
-
     // Create pipeline layout
     let forward_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -103,7 +84,7 @@ pub fn create_render_passes(
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<GlobalUniforms>() as _,
+                            std::mem::size_of::<GlobalUniforms>() as u64,
                         ),
                     },
                     count: None,
@@ -114,7 +95,7 @@ pub fn create_render_passes(
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(real_light_uniform_size),
+                        min_binding_size: None, //wgpu::BufferSize::new(real_light_uniform_size),
                     },
                     count: None,
                 },
@@ -129,7 +110,7 @@ pub fn create_render_passes(
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 3,
+                    binding: 3, // shadow_texture
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         multisampled: false,
@@ -139,7 +120,7 @@ pub fn create_render_passes(
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 4,
+                    binding: 4, // shadow sampler
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Sampler {
                         comparison: true,
@@ -150,9 +131,12 @@ pub fn create_render_passes(
             ],
             label: None,
         });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("main"),
-        bind_group_layouts: &[&forward_bind_group_layout],
+    let forward_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some(&format!("forward pipeline layout: {}", "model_pipeline")),
+        bind_group_layouts: &[
+            &forward_bind_group_layout,
+            &diffuse_texture_bind_group_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -193,19 +177,18 @@ pub fn create_render_passes(
         ],
         label: None,
     });
-
     // Create the render pipeline
     let forward_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("main"),
-        layout: Some(&pipeline_layout),
+        label: Some(&format!("forward pipeline: {}", "model_mesh_pipeline")),
+        layout: Some(&forward_pipeline_layout),
         vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: &[vertex_layout_descriptor, InstanceRaw::desc()],
+            module: vs_shader,
+            entry_point: "main",
+            buffers: &[ModelVertex::desc(), InstanceRaw::desc()],
         },
         fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
+            module: fs_shader,
+            entry_point: "main",
             targets: &[sc_desc.format.into()],
         }),
         primitive: wgpu::PrimitiveState {
@@ -223,7 +206,6 @@ pub fn create_render_passes(
         }),
         multisample: wgpu::MultisampleState::default(),
     });
-
     (
         Pass {
             pipeline: shadow_pipeline,

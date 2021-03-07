@@ -1,25 +1,22 @@
-use crate::texture;
-use crate::texture::Texture;
-use std::path::Path;
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsage, Device, Queue};
-use crate::model_mesh::ModelVertex;
+use super::*;
 
 pub struct ModelMesh {
     pub vertices: Vec<ModelVertex>,
-    pub indices: Vec<u16>,
-    pub material: usize,
+    pub indices: Vec<u32>,
 
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
+    pub index_count: usize,
+
+    pub material: usize,
 }
 
 impl ModelMesh {
-    pub fn new<P: AsRef<Path>>(
-        vertices: Vec<ModelVertex>,
-        indices: Vec<u16>,
+    pub fn new(
         device: &Device,
-        material: usize
+        vertices: Vec<ModelVertex>,
+        indices: Vec<u32>,
+        material: usize,
     ) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cubes Vertex Buffer"),
@@ -35,9 +32,10 @@ impl ModelMesh {
         Self {
             vertices,
             indices,
-            material,
             vertex_buffer,
             index_buffer,
+            index_count: 0,
+            material,
         }
     }
 }

@@ -36,7 +36,6 @@ fn vs_bake() {
     out_position = u_globals.view_proj * model_matrix * vec4<f32>(in_position);
 }
 
-
 [[location(0)]]
 var<out> out_normal_vs: vec3<f32>;
 [[location(1)]]
@@ -147,11 +146,17 @@ var<out> out_color_fs: vec4<f32>;
 const c_ambient: vec3<f32> = vec3<f32>(0.05, 0.05, 0.05);
 const c_max_lights: u32 = 10u;
 
+[[builtin(frag_coord)]]
+var<in> frag_coord: vec4<f32>;
+
 [[stage(fragment)]]
 fn fs_main() {
     const normal: vec3<f32> = normalize(in_normal_fs);
+    const view_dir: vec3<f32> = normalize(u_globals.camera_pos.xyz - in_position_fs.xyz);
+
     // accumulate color
     var color: vec3<f32> = c_ambient;
+
     var i: u32 = 0u;
     loop {
         if (i >= min(u_globals.num_lights.x, c_max_lights)) {
@@ -164,11 +169,13 @@ fn fs_main() {
         light_view_space_pos = light_view_space_pos * correction;
         var shadow: f32 = light.default;
         if (
-            light_view_space_pos.x < 1.0 &&
-            light_view_space_pos.y < 1.0 &&
-            light_view_space_pos.x > -1.0 &&
-            light_view_space_pos.y > -1.0
+            light_view_space_pos.x > 1.0 ||
+            light_view_space_pos.y > 1.0 ||
+            light_view_space_pos.x < -1.0 ||
+            light_view_space_pos.y < -1.0
         ) {
+
+        } else {
             shadow = fetch_shadow(i, light_view_space_pos);
         }
 
@@ -178,11 +185,7 @@ fn fs_main() {
         const diffuse: f32 = max(0.0, dot(normal, light_dir)) * f_diffuse_strength_in;
 
         // specular lighting
-
-        const view_dir: vec3<f32> = normalize(u_globals.camera_pos.xyz - in_position_fs.xyz);
-
         const reflect_dir: vec3<f32> = rf(-light_dir, normal);
-        const reflect_dir: vec3<f32> = -light_dir - (2.0 * dot(-light_dir, normal) * normal);
 
         const spec: f32 = pow(max(dot(view_dir, reflect_dir), 0.0), f_specular_spread_in);
         const specular: f32 = f_specular_strength_in * spec;
@@ -203,30 +206,27 @@ fn fs_main() {
         }
         const light: SimpleLight = simple_lights.data[i];
 
+
+        var attenuation: f32;
+        //attenuation is skipped if the light is directional since it has no position
         var light_dir: vec3<f32>;
         if (light.pos.w == 0.0) {
             light_dir = normalize(-light.pos.xyz);
+            attenuation = 1.0;
         } else {
+            const d: f32 = distance(light.pos.xyz, in_position_fs.xyz);
             light_dir = normalize(light.pos.xyz - in_position_fs.xyz);
+            attenuation = 1.0 / (light.constant + light.linear * d + light.quadratic * (d * d));
         }
 
         // diffuse lighting
         const diffuse: f32 = max(0.0, dot(normal, light_dir)) * f_diffuse_strength_in;
 
         // specular lighting
-
-        const view_dir: vec3<f32> = normalize(u_globals.camera_pos.xyz - in_position_fs.xyz);
-
         const reflect_dir: vec3<f32> = rf(-light_dir, normal);
-        const reflect_dir: vec3<f32> = -light_dir - (2.0 * dot(-light_dir, normal) * normal);
-
         const spec: f32 = pow(max(dot(view_dir, reflect_dir), 0.0), f_specular_spread_in);
         const specular: f32 = f_specular_strength_in * spec;
-
-        const d: f32 = distance(light.pos.xyz, in_position_fs.xyz);
-        const attenuation: f32 = 1.0 / (light.constant + light.linear * d + light.quadratic * (d * d));
-
-        color = color + ((diffuse + specular) * light.color.xyz * light.color.w) * attenuation;
+        color = color + (diffuse + specular) * light.color.xyz * light.color.w * attenuation;
 
         continuing {
             i = i + 1u;

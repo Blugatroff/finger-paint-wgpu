@@ -1,19 +1,19 @@
-use crate::texture;
+use crate::instance::InstanceRaw;
 use crate::texture::Texture;
 use crate::uv_mesh::vertex::UvVertex;
+use crate::{texture, Transform};
 use std::path::Path;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsage, Device, Queue};
-use crate::instance::{Instance, InstanceRaw};
 
 pub struct UvModel {
     pub vertices: Vec<UvVertex>,
-    pub indices: Vec<u16>,
+    pub indices: Option<Vec<u16>>,
     pub diffuse_texture: Texture,
 
-    pub instances: Vec<Instance>,
+    pub instances: Vec<Transform>,
     pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub index_buffer: Option<wgpu::Buffer>,
     pub index_count: usize,
     pub instance_buffer: Buffer,
     pub instances_in_buffer: usize,
@@ -24,7 +24,7 @@ pub struct UvModel {
 impl UvModel {
     pub fn new<P: AsRef<Path>>(
         vertices: Vec<UvVertex>,
-        indices: Vec<u16>,
+        indices: Option<Vec<u16>>,
         device: &Device,
         queue: &Queue,
         path: P,
@@ -50,11 +50,11 @@ impl UvModel {
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsage::VERTEX,
         });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buffer = indices.as_ref().map(|indices| device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cubes Index Buffer"),
-            contents: bytemuck::cast_slice(&indices),
+            contents: bytemuck::cast_slice(indices),
             usage: BufferUsage::INDEX,
-        });
+        }));
 
         let diffuse_bind_group_layout = texture::create_default_bind_group_layout(&device);
         let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -74,7 +74,7 @@ impl UvModel {
 
         Self {
             vertices,
-            index_count: indices.len(),
+            index_count: if let Some(indices) = &indices { indices.len() } else { 0 },
             indices,
             diffuse_texture,
             instances,
@@ -93,7 +93,7 @@ impl UvModel {
                 &self
                     .instances
                     .iter()
-                    .map(|instance: &Instance| instance.into())
+                    .map(|transform: &Transform| transform.into())
                     .collect::<Vec<InstanceRaw>>(),
             ),
             usage: BufferUsage::VERTEX,
