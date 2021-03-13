@@ -191,5 +191,28 @@ impl Update for WgpuRenderer {
                     label: None,
                 });
         }
+        if !self.lines.is_empty() {
+            self.queue.write_buffer(
+                &self.passes.line_forward_pass.uniform_buf,
+                0,
+                bytemuck::cast_slice(&[self.global_uniforms]),
+            );
+            self.passes.line_forward_pass.bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.passes.line_forward_pass.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &self.passes.line_forward_pass.uniform_buf,
+                                offset: 0,
+                                size: None,
+                            },
+                        },
+                    ],
+                    label: None,
+                });
+            self.lines.update(&self.device);
+        }
     }
 }

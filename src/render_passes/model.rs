@@ -14,12 +14,11 @@ pub fn create_model_render_passes(
     let bake_shader = shaders.get_shader("model_bake");
     let vs_shader = shaders.get_shader("model_vs");
     let fs_shader = shaders.get_shader("model_fs");
-    //let diffuse_texture_bind_group_layout = texture::;
+
     let uniform_size = std::mem::size_of::<GlobalUniforms>() as wgpu::BufferAddress;
     // Create pipeline layout
     let diffuse_texture_bind_group_layout = Material::layout(device);
-    let shadow_bind_group_layout =
-        create_shadow_bind_group_layout(device);
+    let shadow_bind_group_layout = create_shadow_bind_group_layout(device);
     let shadow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow"),
         bind_group_layouts: &[&shadow_bind_group_layout],
@@ -33,8 +32,6 @@ pub fn create_model_render_passes(
         mapped_at_creation: false,
     });
 
-    // create bind group
-    // this has the global uniforms and the uniforms of each entity
     let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &shadow_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
@@ -43,13 +40,13 @@ pub fn create_model_render_passes(
         }],
         label: None,
     });
-    // Create the render pipeline for the shadow passes
+
     let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("shadow pass pipeline"),
         layout: Some(&shadow_pipeline_layout),
         vertex: wgpu::VertexState {
             module: bake_shader,
-            entry_point: "main",
+            entry_point: "vs_bake",
             buffers: &[ModelVertex::desc(), InstanceRaw::desc()],
         },
         fragment: None,

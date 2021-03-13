@@ -100,6 +100,22 @@ impl UvModel {
         });
         self.instances_in_buffer = self.instances.len();
     }
+    pub fn update_texture(&mut self, device: &Device) {
+        self.diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("diffuse bind group"),
+            layout: &self.diffuse_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.diffuse_texture.sampler),
+                },
+            ],
+        });
+    }
     pub fn is_empty(&self) -> bool {
         self.instances_in_buffer == 0
     }

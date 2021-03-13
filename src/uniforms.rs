@@ -8,7 +8,8 @@ pub struct GlobalUniforms {
     pub camera_pos: [f32; 3],
     pub _padding_1: u32,
     pub num_lights: [u32; 4],
-    pub ambient_light: [f32; 4]
+    pub ambient_light: [f32; 4],
+    pub lighting_enabled: u32,
 }
 
 #[repr(C)]

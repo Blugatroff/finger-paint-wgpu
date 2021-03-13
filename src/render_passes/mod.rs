@@ -10,12 +10,14 @@ use crate::color_mesh::ColorInstanceRaw;
 use crate::constants::{DEPTH_FORMAT, SHADOW_FORMAT};
 use crate::instance::InstanceRaw;
 use crate::model::Material;
+use crate::render_passes::line::create_line_pipelines;
 use crate::uniforms::GlobalUniforms;
 use crate::ColorVertex;
 use crate::ModelVertex;
 use crate::{texture, UvVertex};
 
 mod color;
+mod line;
 mod model;
 pub mod shader_compiler;
 #[cfg(feature = "hot_reload_shader")]
@@ -29,6 +31,8 @@ pub struct Passes {
     pub uv_forward_pass: Pass,
     pub model_shadow_pass: Pass,
     pub model_forward_pass: Pass,
+    pub line_shadow_pass: Pass,
+    pub line_forward_pass: Pass,
 }
 
 pub struct Pass {
@@ -98,6 +102,8 @@ impl Passes {
             sc_desc,
             shaders,
         );
+        let (line_shadow_pass, line_forward_pass) =
+            create_line_pipelines(device, global_uniforms, sc_desc, shaders);
         Self {
             color_shadow_pass: color_mesh_pipelines.0,
             color_forward_pass: color_mesh_pipelines.1,
@@ -105,6 +111,8 @@ impl Passes {
             uv_forward_pass: uv_mesh_pipelines.1,
             model_shadow_pass,
             model_forward_pass,
+            line_shadow_pass,
+            line_forward_pass,
         }
     }
 }

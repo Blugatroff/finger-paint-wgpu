@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 use crate::WgpuRenderer;
+use crate::render_passes::line::create_line_pipelines;
 
 pub trait ShaderHotReload {
     fn init_shader_watch(&mut self);
@@ -142,6 +143,11 @@ impl ShaderHotReload for WgpuRenderer {
                         );
                         self.passes.model_shadow_pass = shadow_pass;
                         self.passes.model_forward_pass = forward_pass;
+                    }
+                    "line_shader" => {
+                        let (line_shadow_pass, line_forward_pass) = create_line_pipelines(&self.device, &self.global_uniforms, &self.sc_desc, &self.shaders);
+                        self.passes.line_shadow_pass = line_shadow_pass;
+                        self.passes.line_forward_pass = line_forward_pass;
                     }
                     _ => {}
                 }

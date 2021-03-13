@@ -26,137 +26,161 @@ impl Render for WgpuRenderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        encoder.push_debug_group("shadow passes for color_mesh");
-        for (i, light) in self.real_lights.iter().enumerate() {
-            encoder.push_debug_group(&format!(
-                "shadow pass color_mesh {} (light at position {:?})",
-                i,
-                light.camera.get_position()
-            ));
-
-            if !self.color_meshes.is_empty() {
-                // copy the view_proj_matrix from the current light into the global_uniforms of the shadow pass
-                encoder.copy_buffer_to_buffer(
-                    &self.real_lights_storage_buffer, // the buffer all the lights are stored in
-                    (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
-                    &self.passes.color_shadow_pass.uniform_buf, // the globals of the shadow pass
-                    0, // the destination is always at the start of the global_uniform_buffer because it gets overwritten everytime
-                    64, // mat4x4 = 4float * 4float = 16 float = 64 bytes
-                );
-            }
-            if !self.uv_meshes.is_empty() {
-                encoder.copy_buffer_to_buffer(
-                    &self.real_lights_storage_buffer,
-                    (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
-                    &self.passes.uv_shadow_pass.uniform_buf,
-                    0,
-                    64,
-                );
-            }
-            if !self.models.is_empty() {
-                encoder.copy_buffer_to_buffer(
-                    &self.real_lights_storage_buffer,
-                    (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
-                    &self.passes.model_shadow_pass.uniform_buf,
-                    0,
-                    64,
-                );
-            }
-            encoder.insert_debug_marker("render color meshes");
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[], // no color attachments needed because we only care about the depth
-                    depth_stencil_attachment: Some(
-                        wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                            attachment: &light.target_view, // depth is written into the texture of the light
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
-                        },
-                    ),
-                });
-                if !self.models.is_empty() {
-                    pass.set_pipeline(&self.passes.model_shadow_pass.pipeline);
-                    pass.set_bind_group(0, &self.passes.model_shadow_pass.bind_group, &[]); // the globals
-
-                    for model in &self.models {
-                        for mesh in &model.meshes {
-                            pass.set_bind_group(1, &model.materials[mesh.material].bind_group, &[]);
-                            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                            pass.set_vertex_buffer(1, model.instance_buffer.slice(..));
-                            pass.set_index_buffer(
-                                mesh.index_buffer.slice(..),
-                                wgpu::IndexFormat::Uint32,
-                            );
-                            pass.draw_indexed(
-                                0..mesh.indices.len() as u32,
-                                0,
-                                0..model.instances.len() as u32,
-                            );
-                        }
+        if self.global_uniforms.lighting_enabled != 0 {
+            encoder.push_debug_group("shadow passes");
+            for (i, light) in self.real_lights.iter().enumerate() {
+                if light.active {
+                    if !self.color_meshes.is_empty() {
+                        // copy the view_proj_matrix from the current light into the global_uniforms of the shadow pass
+                        encoder.copy_buffer_to_buffer(
+                            &self.real_lights_storage_buffer, // the buffer all the lights are stored in
+                            (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
+                            &self.passes.color_shadow_pass.uniform_buf, // the globals of the shadow pass
+                            0, // the destination is always at the start of the global_uniform_buffer because it gets overwritten everytime
+                            64, // mat4x4 = 4float * 4float = 16 float = 64 bytes
+                        );
                     }
-                }
-                if !self.color_meshes.is_empty() {
-                    pass.set_pipeline(&self.passes.color_shadow_pass.pipeline);
-                    pass.set_bind_group(0, &self.passes.color_shadow_pass.bind_group, &[]); // the globals
-                    for model in self.color_meshes.iter().flatten() {
-                        if !model.is_empty() {
-                            pass.set_vertex_buffer(0, model.vertex_buf.slice(..));
-                            pass.set_vertex_buffer(1, model.instance_buffer.slice(..));
-                            if let Some(index_buf) = &model.index_buf {
-                                pass.set_index_buffer(
-                                    index_buf.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-                                pass.draw_indexed(
-                                    0..model.index_count as u32,
-                                    0,
-                                    0..model.instances.len() as u32,
-                                );
-                            } else {
-                                pass.draw(
-                                    0..model.index_count as u32,
-                                    0..model.instances.len() as u32,
-                                );
+                    if !self.uv_meshes.is_empty() {
+                        encoder.copy_buffer_to_buffer(
+                            &self.real_lights_storage_buffer,
+                            (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
+                            &self.passes.uv_shadow_pass.uniform_buf,
+                            0,
+                            64,
+                        );
+                    }
+                    if !self.models.is_empty() {
+                        encoder.copy_buffer_to_buffer(
+                            &self.real_lights_storage_buffer,
+                            (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
+                            &self.passes.model_shadow_pass.uniform_buf,
+                            0,
+                            64,
+                        );
+                    }
+                    if !self.lines.is_empty() {
+                        encoder.copy_buffer_to_buffer(
+                            &self.real_lights_storage_buffer,
+                            (i * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress,
+                            &self.passes.line_shadow_pass.uniform_buf,
+                            0,
+                            64,
+                        );
+                    }
+                    encoder.push_debug_group(&format!(
+                        "shadow pass {} for light at position {:?} looking {:?}",
+                        i,
+                        light.camera.get_position(),
+                        light.camera.get_direction()
+                    ));
+                    {
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[], // no color attachments needed because we only care about the depth
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                                    attachment: &light.target_view, // depth is written into the texture of the light
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(1.0),
+                                        store: true,
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                        });
+                        if !self.models.is_empty() {
+                            pass.set_pipeline(&self.passes.model_shadow_pass.pipeline);
+                            pass.set_bind_group(0, &self.passes.model_shadow_pass.bind_group, &[]); // the globals
+
+                            for model in &self.models {
+                                if !model.is_empty() {
+                                    for mesh in &model.meshes {
+                                        pass.set_bind_group(
+                                            1,
+                                            &model.materials[mesh.material].bind_group,
+                                            &[],
+                                        );
+                                        pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                                        pass.set_vertex_buffer(1, model.instance_buffer.slice(..));
+                                        pass.set_index_buffer(
+                                            mesh.index_buffer.slice(..),
+                                            wgpu::IndexFormat::Uint32,
+                                        );
+                                        pass.draw_indexed(
+                                            0..mesh.indices.len() as u32,
+                                            0,
+                                            0..model.instances_in_buffer() as u32,
+                                        );
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-                if !self.uv_meshes.is_empty() {
-                    pass.set_pipeline(&self.passes.uv_shadow_pass.pipeline);
-                    pass.set_bind_group(0, &self.passes.uv_shadow_pass.bind_group, &[]); // the globals
-
-                    for uv_mesh in self.uv_meshes.iter().flatten() {
-                        if !uv_mesh.is_empty() {
-                            pass.set_bind_group(1, &uv_mesh.diffuse_bind_group, &[]);
-                            pass.set_vertex_buffer(0, uv_mesh.vertex_buffer.slice(..));
-                            pass.set_vertex_buffer(1, uv_mesh.instance_buffer.slice(..));
-                            if let Some(index_buffer) = &uv_mesh.index_buffer {
-                                pass.set_index_buffer(
-                                    index_buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-                                pass.draw_indexed(
-                                    0..uv_mesh.index_count as u32,
-                                    0,
-                                    0..uv_mesh.instances.len() as u32,
-                                );
-                            } else {
-                                pass.draw(
-                                    0..uv_mesh.index_count as u32,
-                                    0..uv_mesh.index_count as u32,
-                                );
+                        if !self.color_meshes.is_empty() {
+                            pass.set_pipeline(&self.passes.color_shadow_pass.pipeline);
+                            pass.set_bind_group(0, &self.passes.color_shadow_pass.bind_group, &[]); // the globals
+                            for model in self.color_meshes.iter().flatten() {
+                                if !model.is_empty() {
+                                    pass.set_vertex_buffer(0, model.vertex_buf.slice(..));
+                                    pass.set_vertex_buffer(1, model.instance_buffer.slice(..));
+                                    if let Some(index_buf) = &model.index_buf {
+                                        pass.set_index_buffer(
+                                            index_buf.slice(..),
+                                            wgpu::IndexFormat::Uint16,
+                                        );
+                                        pass.draw_indexed(
+                                            0..model.index_count as u32,
+                                            0,
+                                            0..model.instances.len() as u32,
+                                        );
+                                    } else {
+                                        pass.draw(
+                                            0..model.index_count as u32,
+                                            0..model.instances.len() as u32,
+                                        );
+                                    }
+                                }
                             }
                         }
+                        if !self.uv_meshes.is_empty() {
+                            pass.set_pipeline(&self.passes.uv_shadow_pass.pipeline);
+                            pass.set_bind_group(0, &self.passes.uv_shadow_pass.bind_group, &[]); // the globals
+
+                            for uv_mesh in self.uv_meshes.iter().flatten() {
+                                if !uv_mesh.is_empty() {
+                                    pass.set_bind_group(1, &uv_mesh.diffuse_bind_group, &[]);
+                                    pass.set_vertex_buffer(0, uv_mesh.vertex_buffer.slice(..));
+                                    pass.set_vertex_buffer(1, uv_mesh.instance_buffer.slice(..));
+                                    if let Some(index_buffer) = &uv_mesh.index_buffer {
+                                        pass.set_index_buffer(
+                                            index_buffer.slice(..),
+                                            wgpu::IndexFormat::Uint16,
+                                        );
+                                        pass.draw_indexed(
+                                            0..uv_mesh.index_count as u32,
+                                            0,
+                                            0..uv_mesh.instances.len() as u32,
+                                        );
+                                    } else {
+                                        pass.draw(
+                                            0..uv_mesh.index_count as u32,
+                                            0..uv_mesh.index_count as u32,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if !self.lines.is_empty() {
+                            pass.set_pipeline(&self.passes.line_shadow_pass.pipeline);
+                            pass.set_bind_group(0, &self.passes.line_shadow_pass.bind_group, &[]);
+                            pass.set_vertex_buffer(0, self.lines.vertex_buffer.slice(..));
+                            pass.draw(0..self.lines.number_of_vertices() as u32, 0..1);
+                        }
                     }
+                    encoder.pop_debug_group();
                 }
             }
             encoder.pop_debug_group();
         }
-        encoder.pop_debug_group();
 
         // forward pass
         encoder.push_debug_group("forward rendering pass");
@@ -249,11 +273,17 @@ impl Render for WgpuRenderer {
                             pass.draw_indexed(
                                 0..mesh.indices.len() as u32,
                                 0,
-                                0..model.instances.len() as u32,
+                                0..model.instances_in_buffer() as u32,
                             );
                         }
                     }
                 }
+            }
+            if !self.lines.is_empty() {
+                pass.set_pipeline(&self.passes.line_forward_pass.pipeline);
+                pass.set_bind_group(0, &self.passes.line_forward_pass.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.lines.vertex_buffer.slice(..));
+                pass.draw(0..self.lines.number_of_vertices() as u32, 0..1);
             }
         }
         encoder.pop_debug_group();

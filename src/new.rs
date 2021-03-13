@@ -16,6 +16,7 @@ use std::mem;
 use std::path::PathBuf;
 use wgpu::util::DeviceExt;
 use wgpu::Features;
+use crate::lines::Lines;
 
 pub trait New {
     fn new(window: &winit::window::Window, hot_reload: Option<PathBuf>) -> Self;
@@ -24,7 +25,7 @@ pub trait New {
 impl New for WgpuRenderer {
     #[allow(unused_variables)]
     fn new(window: &winit::window::Window, hot_reload: Option<PathBuf>) -> Self {
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
         let surface = unsafe { instance.create_surface(window) };
         let size = window.inner_size();
         let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -125,7 +126,8 @@ impl New for WgpuRenderer {
             camera_pos: camera.get_position().into(),
             _padding_1: 0,
             num_lights: [real_lights.len() as u32, 0, 0, 0],
-            ambient_light: [0.5, 0.05, 0.5, 1.0],
+            ambient_light: [0.05, 0.05, 0.05, 1.0],
+            lighting_enabled: 1,
         };
 
         let simple_lights: Vec<SimpleLight> = vec![];
@@ -170,8 +172,8 @@ impl New for WgpuRenderer {
             );
             shaders.read_from_file(
                 &device,
-                path.join("./src/model/bake.glsl"),
-                ShaderType::Glsl,
+                path.join("./src/model/bake.wgsl"),
+                ShaderType::Wgsl,
                 ShaderKind::Vertex,
                 "model_bake",
             );
@@ -189,39 +191,23 @@ impl New for WgpuRenderer {
                 ShaderKind::Fragment,
                 "model_fs",
             );
+            shaders.read_from_file(
+                &device,
+                path.join("./src/lines/shader.wgsl"),
+                ShaderType::Wgsl,
+                ShaderKind::Vertex,
+                "line_shader",
+            );
         }
         #[cfg(not(feature = "hot_reload_shader"))]
         {
-            shaders.load_wgsl(
-                &device,
-                include_str!("color_mesh/shader.wgsl"),
-                "color_mesh",
-            );
+            shaders.load_wgsl(&device,include_str!("color_mesh/shader.wgsl"),"color_mesh");
             shaders.load_wgsl(&device, include_str!("uv_mesh/shader.wgsl"), "uv_mesh");
-            shaders.load_spirv(&device, include_bytes!("model/bake.glsl.spv"), "model_bake");
+            shaders.load_wgsl(&device, include_str!("model/bake.wgsl"), "model_bake");
             shaders.load_spirv(&device, include_bytes!("model/vs.glsl.spv"), "model_vs");
             shaders.load_spirv(&device, include_bytes!("model/fs.glsl.spv"), "model_fs");
+            shaders.load_wgsl(&device, include_str!("lines/shader.wgsl"), "line_shader");
         }
-        /*        //#[rustfmt::skip]
-        {
-            #[cfg(feature = "hot_reload_shader")]
-            {
-                use crate::render_passes::shader_compiler::ShaderType;
-                shaders.read_from_file(&device, "./src/color_mesh/shader.wgsl", ShaderType::WGSL, ShaderKind::Vertex, "color_mesh",);
-                shaders.read_from_file(&device, "./src/uv_mesh/shader.wgsl", ShaderType::WGSL, ShaderKind::Vertex, "uv_mesh",);
-                shaders.read_from_file(&device, "./src/model/bake.glsl", ShaderType::GLSL, ShaderKind::Vertex, "model_bake",);
-                shaders.read_from_file(&device, "./src/model/vs.glsl", ShaderType::GLSL, ShaderKind::Vertex, "model_vs",);
-                shaders.read_from_file(&device, "./src/model/fs.glsl", ShaderType::GLSL, ShaderKind::Fragment, "model_fs",);
-            }
-            #[cfg(not(feature = "hot_reload_shader"))]
-            {
-                shaders.load_wgsl(&device, include_str!("color_mesh/shader.wgsl"), "color_mesh",);
-                shaders.load_wgsl(&device, include_str!("uv_mesh/shader.wgsl"), "uv_mesh");
-                shaders.load_glsl(&device, include_str!("model/bake.glsl"), "model_bake", "bake.glsl", ShaderKind::Vertex,);
-                shaders.load_glsl(&device, include_str!("model/vs.glsl"), "model_vs", "vs.glsl", ShaderKind::Vertex,);
-                shaders.load_glsl(&device, include_str!("model/fs.glsl"), "model_fs", "fs.glsl", ShaderKind::Fragment,);
-            }
-        }*/
 
         let passes = Passes::new(
             &device,
@@ -248,10 +234,10 @@ impl New for WgpuRenderer {
             label: None,
         });
 
+        let lines = Lines::new(&device);
+
         #[allow(clippy::let_and_return, unused_mut)]
         let mut renderer = Self {
-            models: vec![],
-
             _instance: instance,
             _adapter: adapter,
             surface,
@@ -264,9 +250,11 @@ impl New for WgpuRenderer {
             lights_are_dirty: true,
 
             color_meshes: vec![],
-            passes,
-
             uv_meshes: vec![],
+            models: vec![],
+            lines,
+
+            passes,
 
             forward_depth: depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
             shadow_texture,

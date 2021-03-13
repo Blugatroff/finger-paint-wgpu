@@ -17,7 +17,7 @@ pub struct Model {
     pub meshes: Vec<ModelMesh>,
     pub materials: Vec<Material>,
     pub instance_buffer: Buffer,
-    pub instances: Vec<Option<Transform>>,
+    pub instances: Vec<Transform>,
     instances_in_buffer: usize,
 }
 
@@ -50,7 +50,7 @@ impl Model {
                 &self
                     .instances
                     .iter()
-                    .filter_map(|transform: &Option<Transform>| transform.as_ref()).map(|m| m.into())
+                    .map(|transform: &Transform| transform.into())
                     .collect::<Vec<InstanceRaw>>(),
             ),
             usage: BufferUsage::VERTEX,
@@ -59,6 +59,9 @@ impl Model {
     }
     pub fn is_empty(&self) -> bool {
         self.instances_in_buffer == 0
+    }
+    pub fn instances_in_buffer(&self) -> usize {
+        self.instances_in_buffer
     }
     pub fn load<P: AsRef<Path>>(device: &wgpu::Device, queue: &wgpu::Queue, path: P) -> Self {
         let (obj_models, obj_materials) = tobj::load_obj(path.as_ref(), true).unwrap();

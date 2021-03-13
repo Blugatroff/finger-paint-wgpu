@@ -2,8 +2,11 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub size: (u32, u32)
 }
 use std::path::Path;
+use wgpu::{Queue, Device};
+
 impl Texture {
     pub fn load<P: AsRef<Path>>(
         device: &wgpu::Device,
@@ -105,7 +108,60 @@ impl Texture {
             texture,
             view,
             sampler,
+            size: dimensions
         }
+    }
+    /// write raw bytes to the texture
+    /// if the size of the new texture is greater than the previous a new texture is created and this method returns true
+    pub fn write_raw(&mut self, device: &Device, queue: &Queue, size: (u32, u32), data: &[u8]) -> bool {
+        if data.len() as u32 != size.0 * size.1 * 4 {
+            panic!(
+                "raw data for texture is not compatible with format. Got {} expected: {}",
+                data.len(),
+                size.0 * size.1 * 4
+            )
+        }
+
+        let new_texture: bool = data.len() as u32 > self.size.0 * self.size.1 * std::mem::size_of::<[u8; 4]>() as u32;
+
+        if new_texture {
+            self.texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+            });
+        }
+
+        queue.write_texture(
+            wgpu::TextureCopyView {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            data,
+            wgpu::TextureDataLayout {
+                offset: 0,
+                bytes_per_row: 4 * size.0,
+                rows_per_image: size.1,
+            },
+            wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth: 1,
+            },
+        );
+        if new_texture {
+            self.view = self.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        }
+        new_texture
     }
 }
 #[allow(dead_code)]

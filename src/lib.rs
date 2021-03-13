@@ -34,8 +34,11 @@ use uniforms::GlobalUniforms;
 use update::Update;
 use uv_mesh::UvModel;
 pub use uv_mesh::UvVertex;
+pub use lines::LineVertex;
 
-use crate::render_passes::Passes;
+pub use lines::Line;
+use lines::Lines;
+use render_passes::Passes;
 
 mod api;
 mod camera;
@@ -43,6 +46,7 @@ mod color_mesh;
 mod constants;
 mod instance;
 mod light;
+mod lines;
 mod model;
 mod new;
 mod render;
@@ -71,6 +75,7 @@ pub struct WgpuRenderer {
     color_meshes: Vec<Option<ColorMesh>>,
     uv_meshes: Vec<Option<UvModel>>,
     models: Vec<Model>,
+    lines: Lines,
 
     passes: Passes,
 
@@ -130,8 +135,12 @@ impl WgpuRenderer {
     /// load a model from a obj
     /// this is not working well, only simple models work properly
     pub fn load_model<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        self.models.push(Model::load(&self.device, &self.queue, path));
+        self.models
+            .push(Model::load(&self.device, &self.queue, path));
         self.models.len() - 1
+    }
+    pub fn model_instances(&mut self, model: usize) -> &mut Vec<Transform> {
+        &mut self.models[model].instances
     }
     /// update the instances of a Model
     /// this has to be called in order for any changes to take effect
@@ -180,6 +189,18 @@ impl WgpuRenderer {
             uv_mesh.update(&self.device);
         }
     }
+    /// Write a slice of bytes to the texture of a uv_mesh.
+    /// When the size of the new texture is greater than the old one a new texture will have to be created. This is a bit slower.
+    pub fn write_raw_texture_to_uv_mesh(&mut self, mesh: usize, size: (u32, u32), data: &[u8]) {
+        if let Some(mesh) = self.uv_meshes[mesh].as_mut() {
+            if mesh
+                .diffuse_texture
+                .write_raw(&self.device, &self.queue, size, data)
+            {
+                mesh.update_texture(&self.device);
+            }
+        }
+    }
     /// get access to the camera
     pub fn camera(&mut self) -> &mut Camera {
         &mut self.camera
@@ -201,5 +222,14 @@ impl WgpuRenderer {
     pub fn add_font(&mut self, data: &'static [u8]) -> Result<FontId, InvalidFont> {
         let font = ab_glyph::FontArc::try_from_slice(data)?;
         Ok(self.glyph_brush.add_font(font))
+    }
+    /// This allows turning on/off all lighting calculations in the shaders.
+    /// The default is on
+    pub fn enable_lighting(&mut self, enabled: bool) {
+        self.global_uniforms.lighting_enabled = if enabled { 1 } else { 0 };
+    }
+    /// get access to all lines
+    pub fn lines(&mut self) -> &mut Vec<Line> {
+        self.lines.lines()
     }
 }

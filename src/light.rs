@@ -11,6 +11,7 @@ pub struct RealLight {
     pub constant: f32,
     pub linear: f32,
     pub quadratic: f32,
+    pub active: bool
 }
 
 #[repr(C)]
@@ -23,6 +24,8 @@ pub struct RealLightRaw {
     constant: f32,
     linear: f32,
     quadratic: f32,
+    active: u32,
+    _padding: [u32; 3]
 }
 
 impl RealLight {
@@ -36,6 +39,8 @@ impl RealLight {
             constant: self.constant,
             linear: self.linear,
             quadratic: self.quadratic,
+            active: if self.active { 1 } else { 0 },
+            _padding: [42069; 3]
         }
     }
 }
@@ -44,9 +49,7 @@ impl RealLight {
 pub struct SimpleLight {
     pub color: Vector4<f32>,
     pub kind: SimpleLightKind,
-    pub constant: f32,
-    pub linear: f32,
-    pub quadratic: f32,
+    pub attenuation: LightAttenuation
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,10 +80,27 @@ impl From<&SimpleLight> for SimpleLightRaw {
                     [x, y, z, 1.0]
                 }
             },
-            constant: light.constant,
-            linear: light.linear,
-            quadratic: light.quadratic,
+            constant: light.attenuation.constant,
+            linear: light.attenuation.linear,
+            quadratic: light.attenuation.quadratic,
         }
     }
 }
 
+
+#[derive(Clone, Copy, Debug)]
+pub struct LightAttenuation {
+    pub constant: f32,
+    pub linear: f32,
+    pub quadratic: f32,
+}
+
+impl Default for LightAttenuation {
+    fn default() -> Self {
+        Self {
+            constant: 1.0,
+            linear: 0.2,
+            quadratic: 0.2,
+        }
+    }
+}
