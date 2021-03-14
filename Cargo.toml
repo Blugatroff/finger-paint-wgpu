@@ -19,6 +19,7 @@ simple_winit = { git = "https://github.com/Blugatroff/simple-winit", branch = "m
 wgpu_glyph = "0.11.0"
 image = "0.23.14"
 tobj = "2.0.3"
+easy-gltf = "*"
 
 notify = { version = "4.0.15", optional = true }
 shaderc = { version = "0.7.1", optional = true }

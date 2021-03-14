@@ -1,6 +1,5 @@
 use crate::camera::{Camera, ViewMatrixMode};
-use crate::constants::SHADOW_SIZE;
-use crate::light::{RealLightRaw, SimpleLight, SimpleLightRaw};
+use crate::lines::Lines;
 use crate::render_passes::shader_compiler::ShaderCompiler;
 #[cfg(feature = "hot_reload_shader")]
 use crate::render_passes::shader_compiler::ShaderType;
@@ -8,7 +7,7 @@ use crate::render_passes::shader_compiler::ShaderType;
 use crate::render_passes::shader_reload::ShaderHotReload;
 use crate::render_passes::Passes;
 use crate::uniforms::GlobalUniforms;
-use crate::{WgpuRenderer, DEPTH_FORMAT, MAX_LIGHTS, SHADOW_FORMAT};
+use crate::{WgpuRenderer, DEPTH_FORMAT, SHADOW_FORMAT};
 use cgmath::{Point3, Vector3};
 use futures::executor::block_on;
 use std::f32::consts::PI;
@@ -16,7 +15,7 @@ use std::mem;
 use std::path::PathBuf;
 use wgpu::util::DeviceExt;
 use wgpu::Features;
-use crate::lines::Lines;
+use crate::api::lights::{RealLightRaw, SimpleLight, SimpleLightRaw};
 
 pub trait New {
     fn new(window: &winit::window::Window, hot_reload: Option<PathBuf>) -> Self;
@@ -25,6 +24,8 @@ pub trait New {
 impl New for WgpuRenderer {
     #[allow(unused_variables)]
     fn new(window: &winit::window::Window, hot_reload: Option<PathBuf>) -> Self {
+        let max_real_lights: u32 = 10;
+        let shadow_resolution = [512, 512];
         let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
         let surface = unsafe { instance.create_surface(window) };
         let size = window.inner_size();
@@ -81,9 +82,13 @@ impl New for WgpuRenderer {
             ..Default::default()
         });
 
-        // create a shadow texture, the shadows (distance of fragment to light source) will be put in instances of this
+        // create a shadow texture, the shadows (distance of fragment to light source) will be put in layers of this
         let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: SHADOW_SIZE,
+            size: wgpu::Extent3d {
+                width: shadow_resolution[0],
+                height: shadow_resolution[1],
+                depth: max_real_lights as u32,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -99,7 +104,7 @@ impl New for WgpuRenderer {
         // ==================== create the storage buffer for the lights ==================== \\
         // the size of the buffer is determined by the max number of lights (10) and the size of each individual LightRaw
         let real_light_uniform_size =
-            (MAX_LIGHTS * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress;
+            (max_real_lights as usize * mem::size_of::<RealLightRaw>()) as wgpu::BufferAddress;
         // this buffer is not initialized yet
         let real_lights_storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -156,52 +161,20 @@ impl New for WgpuRenderer {
         {
             use shaderc::ShaderKind;
             let path = hot_reload.unwrap();
-            shaders.read_from_file(
-                &device,
-                path.join("./src/color_mesh/shader.wgsl"),
-                ShaderType::Wgsl,
-                ShaderKind::Vertex,
-                "color_mesh",
-            );
-            shaders.read_from_file(
-                &device,
-                path.join("./src/uv_mesh/shader.wgsl"),
-                ShaderType::Wgsl,
-                ShaderKind::Vertex,
-                "uv_mesh",
-            );
-            shaders.read_from_file(
-                &device,
-                path.join("./src/model/bake.wgsl"),
-                ShaderType::Wgsl,
-                ShaderKind::Vertex,
-                "model_bake",
-            );
-            shaders.read_from_file(
-                &device,
-                path.join("./src/model/vs.glsl"),
-                ShaderType::Glsl,
-                ShaderKind::Vertex,
-                "model_vs",
-            );
-            shaders.read_from_file(
-                &device,
-                path.join("./src/model/fs.glsl"),
-                ShaderType::Glsl,
-                ShaderKind::Fragment,
-                "model_fs",
-            );
-            shaders.read_from_file(
-                &device,
-                path.join("./src/lines/shader.wgsl"),
-                ShaderType::Wgsl,
-                ShaderKind::Vertex,
-                "line_shader",
-            );
+            shaders.read_from_file(&device, path.join("./src/color_mesh/shader.wgsl"), ShaderType::Wgsl, ShaderKind::Vertex, "color_mesh");
+            shaders.read_from_file(&device, path.join("./src/uv_mesh/shader.wgsl"), ShaderType::Wgsl,ShaderKind::Vertex,  "uv_mesh");
+            shaders.read_from_file(&device, path.join("./src/model/bake.wgsl"), ShaderType::Wgsl, ShaderKind::Vertex, "model_bake");
+            shaders.read_from_file(&device, path.join("./src/model/vs.glsl"), ShaderType::Glsl, ShaderKind::Vertex, "model_vs");
+            shaders.read_from_file( &device, path.join("./src/model/fs.glsl"), ShaderType::Glsl, ShaderKind::Fragment, "model_fs");
+            shaders.read_from_file(&device, path.join("./src/lines/shader.wgsl"), ShaderType::Wgsl, ShaderKind::Vertex, "line_shader");
         }
         #[cfg(not(feature = "hot_reload_shader"))]
         {
-            shaders.load_wgsl(&device,include_str!("color_mesh/shader.wgsl"),"color_mesh");
+            shaders.load_wgsl(
+                &device,
+                include_str!("color_mesh/shader.wgsl"),
+                "color_mesh",
+            );
             shaders.load_wgsl(&device, include_str!("uv_mesh/shader.wgsl"), "uv_mesh");
             shaders.load_wgsl(&device, include_str!("model/bake.wgsl"), "model_bake");
             shaders.load_spirv(&device, include_bytes!("model/vs.glsl.spv"), "model_vs");
@@ -270,6 +243,8 @@ impl New for WgpuRenderer {
             real_lights_storage_buffer,
             shadow_view,
             shadow_sampler,
+            max_real_lights,
+            shadow_resolution,
             shaders,
         };
 

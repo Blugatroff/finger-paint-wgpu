@@ -1,9 +1,9 @@
 use cgmath::{Matrix3, Point3, Vector3, Vector4};
 use finger_paint_wgpu::cgmath::{Deg, InnerSpace, Rad, SquareMatrix, Vector2};
 use finger_paint_wgpu::{
-    Camera, ColorMeshInstance, ColorVertex, HorizontalAlign, Lighting, Line, LineVertex, Paragraph,
-    RealLightApi, RealLightPublic, Resize, TextSection, Transform, UvVertex, VerticalAlign,
-    ViewMatrixMode, WgpuRenderer,
+    Camera, ColorMeshHandle, ColorMeshInstance, ColorVertex, HorizontalAlign, LightAttenuation,
+    Lighting, Line, LineVertex, MeshApi, Paragraph, RealLightApi, RealLightPublic, Resize,
+    TextSection, Transform, UvMeshHandle, UvVertex, VerticalAlign, ViewMatrixMode, WgpuRenderer,
 };
 use simple_winit::input::{Input, VirtualKeyCode};
 use simple_winit::InputEvent;
@@ -13,7 +13,8 @@ use std::time::Duration;
 pub struct State {
     renderer: WgpuRenderer,
     time: f32,
-    cube_model: usize,
+    cube_model: ColorMeshHandle,
+    plane_model: UvMeshHandle,
     cube_2: usize,
     camera_controller: CameraController,
     average_frame_time: f32,
@@ -22,71 +23,12 @@ pub struct State {
 
 impl State {
     pub fn new(window: &simple_winit::winit::window::Window) -> Self {
-        Self {
-            renderer: WgpuRenderer::new(window, Some(std::path::PathBuf::from("./"))),
-            time: 0.0,
-            cube_model: 0,
-            cube_2: 0,
-            camera_controller: CameraController {
-                speed: 5.0,
-                mouse_sens: 0.005,
-                turn_speed: 0.5,
-                heading: 0.0,
-                pitch: 0.0,
-            },
-            average_frame_time: 1.0,
-            lighting: true,
-        }
-    }
-}
+        let mut renderer = WgpuRenderer::new(window, Some(std::path::PathBuf::from("./")));
 
-impl simple_winit::WindowLoop for State {
-    fn init(&mut self) {
         let (cube_vertex_data, cube_index_data) = create_cube();
-        self.cube_model = self
-            .renderer
-            .load_color_mesh(cube_vertex_data, Some(cube_index_data));
-        let (plane_vertex_data, plane_index_data) = create_plane(20.0);
-        let plane_model = self
-            .renderer
-            .load_color_mesh(plane_vertex_data, Some(plane_index_data));
-
-        build_box(self, plane_model);
-
-        self.renderer
-            .color_mesh_instances(self.cube_model)
-            .push(ColorMeshInstance {
-                transform: Transform {
-                    position: Vector3::new(0.9, 0.5, 2.0),
-                    rotation: Matrix3::from_axis_angle(Vector3::unit_x(), Deg(0.01)),
-                    scale: Vector3::new(1.0, 0.5, 1.0),
-                },
-                lighting: Lighting {
-                    specular_strength: 1.0,
-                    specular_spread: 32.0,
-                    diffuse_strength: 1.0,
-                },
-            });
-        self.cube_2 = self.renderer.color_mesh_instances(self.cube_model).len() - 1;
-
-        self.renderer.update_color_mesh(plane_model);
-        self.renderer.update_color_mesh(self.cube_model);
-
-        self.renderer
-            .color_mesh_instances(self.cube_model)
-            .push(ColorMeshInstance {
-                transform: Transform {
-                    position: Vector3::new(0.0, 20.0, 0.0),
-                    rotation: Matrix3::identity(),
-                    scale: Vector3::new(0.1, 0.1, 0.1),
-                },
-                lighting: Lighting {
-                    specular_strength: 2.0,
-                    specular_spread: 64.0,
-                    diffuse_strength: 1.0,
-                },
-            });
-        let grass_block = self.renderer.load_uv_mesh(
+        let cube_model = renderer.load_color_mesh(cube_vertex_data, Some(cube_index_data));
+        //let (plane_vertex_data, plane_index_data) = create_plane(20.0);
+        let plane_model = renderer.load_uv_mesh(
             vec![
                 UvVertex::new(
                     Vector3::new(0.0, 0.0, 0.0),
@@ -112,21 +54,83 @@ impl simple_winit::WindowLoop for State {
             Some(vec![2, 1, 0, 1, 2, 3]),
             "grass_side.png",
         );
+        Self {
+            renderer,
+            time: 0.0,
+            cube_model,
+            plane_model,
+            cube_2: 0,
+            camera_controller: CameraController {
+                speed: 5.0,
+                mouse_sens: 0.005,
+                turn_speed: 0.5,
+                heading: 0.0,
+                pitch: 0.0,
+            },
+            average_frame_time: 1.0,
+            lighting: true,
+        }
+    }
+}
+
+impl simple_winit::WindowLoop for State {
+    fn init(&mut self) {
         self.renderer
-            .uv_mesh_instances(grass_block)
+            .color_mesh_instances(&self.cube_model)
+            .push(ColorMeshInstance {
+                transform: Transform {
+                    position: Vector3::new(0.9, 0.5, 2.0),
+                    rotation: Matrix3::from_axis_angle(Vector3::unit_x(), Deg(0.01)),
+                    scale: Vector3::new(1.0, 0.5, 1.0),
+                },
+                lighting: Lighting {
+                    specular_strength: 1.0,
+                    specular_spread: 32.0,
+                    diffuse_strength: 1.0,
+                },
+            });
+        self.cube_2 = self.renderer.color_mesh_instances(&self.cube_model).len() - 1;
+
+        self.renderer.update_uv_mesh(&self.plane_model);
+        self.renderer.update_color_mesh(&self.cube_model);
+
+        self.renderer
+            .color_mesh_instances(&self.cube_model)
+            .push(ColorMeshInstance {
+                transform: Transform {
+                    position: Vector3::new(0.0, 20.0, 0.0),
+                    rotation: Matrix3::identity(),
+                    scale: Vector3::new(0.1, 0.1, 0.1),
+                },
+                lighting: Lighting {
+                    specular_strength: 2.0,
+                    specular_spread: 64.0,
+                    diffuse_strength: 1.0,
+                },
+            });
+        self.renderer
+            .uv_mesh_instances(&self.plane_model)
             .push(Transform {
                 position: Vector3::new(0.0, 1.0, 2.0),
                 rotation: Matrix3::identity(),
                 scale: Vector3::new(1.0, 1.0, 1.0),
             });
-        self.renderer.update_uv_mesh(grass_block);
-        add_point_light(self, Point3::new(00.0, 20.0, 0.0));
+        self.renderer.update_uv_mesh(&self.plane_model);
 
-        let sphere_model = self.renderer.load_model("res/untitled.obj");
+        //let sphere_model = self.renderer.load_model("res/grass.glb");
+        let start = std::time::Instant::now();
+        let sphere_model = self.renderer.load_model("res/test/cottage.glb");
+        dbg!(start.elapsed().as_secs_f64());
         let mut t = Transform::new();
-        t.rotation = cgmath::Matrix3::from_angle_x(Deg(-90.0));
-        self.renderer.model_instances(sphere_model).push(t);
-        self.renderer.update_model(sphere_model);
+
+        t.scale *= 2.0;
+        self.renderer
+            .model_instances(&sphere_model)
+            .unwrap()
+            .push(t);
+        self.renderer.update_model(&sphere_model);
+
+        self.renderer.set_shadow_resolution([2048, 2048]);
 
         let pos: [f32; 3] = self.renderer.camera().get_position().into();
         self.renderer.paragraphs().push(Paragraph {
@@ -177,19 +181,19 @@ impl simple_winit::WindowLoop for State {
         let dir: [f32; 3] = self.renderer.camera().get_direction().into();
         self.renderer.paragraphs()[0].sections[1].text =
             format!("pos: {:?} \ndirection: {:?}", pos, dir,);
-        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
+        self.renderer.color_mesh_instances(&self.cube_model)[self.cube_2]
             .transform
             .position[1] = self.time.cos() * 2.0;
 
-        let rotation: Matrix3<f32> = self.renderer.color_mesh_instances(self.cube_model)
+        let rotation: Matrix3<f32> = self.renderer.color_mesh_instances(&self.cube_model)
             [self.cube_2]
             .transform
             .rotation;
-        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
+        self.renderer.color_mesh_instances(&self.cube_model)[self.cube_2]
             .transform
             .rotation = Matrix3::from_angle_x(Rad(dt)) * rotation;
 
-        self.renderer.color_mesh_instances(self.cube_model)[self.cube_2]
+        self.renderer.color_mesh_instances(&self.cube_model)[self.cube_2]
             .transform
             .position = Vector3::new(
             self.time.cos() * 5.0,
@@ -202,23 +206,48 @@ impl simple_winit::WindowLoop for State {
             self.renderer.enable_lighting(self.lighting);
         }
         if input.key_pressed(VirtualKeyCode::H) {
+            self.renderer.set_shadow_resolution([100, 100]);
+        }
+
+        if input.key_pressed(VirtualKeyCode::Y) && self.renderer.get_real_light(0).is_some() {
             self.renderer.remove_real_light(0);
+        }
+        if input.key_pressed(VirtualKeyCode::G) && self.renderer.get_real_light(0).is_none() {
+            self.renderer
+                .add_real_light(RealLightPublic {
+                    camera: Camera::new(
+                        Point3::new(0.0, 35.0, 0.0),
+                        Point3::new(0.0, 0.0, 0.0),
+                        Vector3::new(1.0, 0.0, 0.0),
+                        1.0,
+                        ViewMatrixMode::Perspective {
+                            near: 0.1,
+                            far: 100.0,
+                            fov: PI / 2.0,
+                        },
+                    ),
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    default: 0.05,
+                    attenuation: LightAttenuation {
+                        constant: 2.0,
+                        linear: 0.03,
+                        quadratic: 0.01,
+                    },
+                })
+                .unwrap();
+        }
+        if input.key_held(VirtualKeyCode::LAlt) {
+            if let Some(mut l) = self.renderer.get_real_light(0) {
+                l.camera = *self.renderer.camera();
+                self.renderer.set_real_light(0, l);
+                self.renderer.update_real_lights();
+            }
         }
 
         self.camera_controller
             .update(dt, self.renderer.camera(), input);
 
-        self.renderer.update_color_mesh(self.cube_model);
-
-        let x = self.time.cos() * 6.0;
-        let y = 5.0;
-        let z = self.time.sin() * 6.0;
-
-        for i in 0..6 {
-            //let mut c = self.renderer.get_real_light(i).unwrap();
-            //c.camera.set_position(Point3::new(x, y, z));
-            //self.renderer.set_real_light(i ,c);
-        }
+        self.renderer.update_color_mesh(&self.cube_model);
 
         self.renderer.update();
     }
@@ -390,16 +419,17 @@ impl CameraController {
     }
 }
 
+#[allow(dead_code)]
 fn add_point_light(state: &mut State, pos: Point3<f32>) {
     let fov: f32 = PI / 2.0;
     #[rustfmt::skip]
     let lights = [
-        //(Vector3::new( 1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 0.0, 0.0, 1.0]),
-        //(Vector3::new(-1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 1.0, 1.0, 1.0]),
-        //(Vector3::new( 0.0,  1.0,  0.0), Vector3::new(0.0, 0.0, 1.0), [0.0, 1.0, 0.0, 1.0]),
+        (Vector3::new( 1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 0.0, 0.0, 1.0]),
+        (Vector3::new(-1.0,  0.0,  0.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 1.0, 1.0, 1.0]),
+        (Vector3::new( 0.0,  1.0,  0.0), Vector3::new(0.0, 0.0, 1.0), [0.0, 1.0, 0.0, 1.0]),
         (Vector3::new( 0.0, -1.0,  0.0), Vector3::new(0.0, 0.0, 1.0), [1.0, 0.0, 1.0, 1.0]),
-        //(Vector3::new( 0.0,  0.0, -1.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 1.0, 0.0, 1.0]),
-        //(Vector3::new( 0.0,  0.0,  1.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 0.0, 1.0, 1.0])
+        (Vector3::new( 0.0,  0.0, -1.0), Vector3::new(0.0, 1.0, 0.0), [1.0, 1.0, 0.0, 1.0]),
+        (Vector3::new( 0.0,  0.0,  1.0), Vector3::new(0.0, 1.0, 0.0), [0.0, 0.0, 1.0, 1.0])
     ];
     for light in &lights {
         state
@@ -411,45 +441,15 @@ fn add_point_light(state: &mut State, pos: Point3<f32>) {
                     light.1,
                     1.0,
                     ViewMatrixMode::Perspective {
-                        near: 1.0,
-                        far: 25.0,
+                        near: 0.1,
+                        far: 100.0,
                         fov,
                     },
                 ),
                 color: light.2,
                 default: 0.0,
-                attenuation: Default::default()
+                attenuation: Default::default(),
             })
             .unwrap();
-    }
-}
-
-fn build_box(state: &mut State, plane_model: usize) {
-    #[rustfmt::skip]
-    let planes: [(Vector3<f32>, Matrix3<f32>); 6] = [
-        (Vector3::new(-20.0, 20.0,   0.0), Matrix3::from_angle_y(Rad( PI / 2.0))),
-        (Vector3::new( 20.0, 20.0,   0.0), Matrix3::from_angle_y(Rad(-PI / 2.0))),
-        (Vector3::new( 0.0 , 20.0, -20.0), Matrix3::identity    (                    )),
-        (Vector3::new( 0.0 , 20.0,  20.0), Matrix3::from_angle_x(Rad( PI      ))),
-        (Vector3::new( 0.0 ,  0.0,   0.0), Matrix3::from_angle_x(Rad(-PI / 2.0))),
-        (Vector3::new( 0.0 , 40.0,   0.0), Matrix3::from_angle_x(Rad( PI / 2.0))),
-    ];
-    let plane_scale: Vector3<f32> = Vector3::new(1.0, 1.0, 1.0);
-    for plane in &planes {
-        state
-            .renderer
-            .color_mesh_instances(plane_model)
-            .push(ColorMeshInstance {
-                transform: Transform {
-                    position: plane.0,
-                    rotation: plane.1,
-                    scale: plane_scale,
-                },
-                lighting: Lighting {
-                    specular_strength: 1.0,
-                    specular_spread: 32.0,
-                    diffuse_strength: 1.0,
-                },
-            });
     }
 }

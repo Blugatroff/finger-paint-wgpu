@@ -1,5 +1,6 @@
-use crate::light::RealLightRaw;
+use crate::api::lights::RealLightRaw;
 use crate::WgpuRenderer;
+use futures::task::SpawnExt;
 use std::mem;
 use wgpu_glyph::{BuiltInLineBreaker, Layout, Section, Text};
 
@@ -92,7 +93,7 @@ impl Render for WgpuRenderer {
                             pass.set_pipeline(&self.passes.model_shadow_pass.pipeline);
                             pass.set_bind_group(0, &self.passes.model_shadow_pass.bind_group, &[]); // the globals
 
-                            for model in &self.models {
+                            for model in self.models.iter().flatten() {
                                 if !model.is_empty() {
                                     for mesh in &model.meshes {
                                         pass.set_bind_group(
@@ -260,7 +261,7 @@ impl Render for WgpuRenderer {
             if !self.models.is_empty() {
                 pass.set_pipeline(&self.passes.model_forward_pass.pipeline);
                 pass.set_bind_group(0, &self.passes.model_forward_pass.bind_group, &[]); // the globals
-                for model in &self.models {
+                for model in self.models.iter().flatten() {
                     if !model.is_empty() {
                         for mesh in &model.meshes {
                             pass.set_bind_group(1, &model.materials[mesh.material].bind_group, &[]);
@@ -288,49 +289,50 @@ impl Render for WgpuRenderer {
         }
         encoder.pop_debug_group();
 
-        encoder.push_debug_group("text rendering");
-        {
-            for paragraph in &self.paragraphs {
-                self.glyph_brush.queue(Section {
-                    screen_position: (paragraph.position.x, paragraph.position.y),
-                    bounds: (self.sc_desc.width as f32, self.sc_desc.height as f32),
-                    layout: Layout::Wrap {
-                        line_breaker: BuiltInLineBreaker::AnyCharLineBreaker,
-                        h_align: paragraph.horizontal_alignment,
-                        v_align: paragraph.vertical_alignment,
-                    },
-                    text: paragraph
-                        .sections
-                        .iter()
-                        .map(|section| {
-                            Text::new(&section.text)
-                                .with_color(section.color)
-                                .with_scale(section.scale)
-                                .with_font_id(section.font)
-                        })
-                        .collect(),
-                });
+
+        if !self.paragraphs.is_empty() {
+            encoder.push_debug_group("text rendering");
+            {
+                for paragraph in &self.paragraphs {
+                    self.glyph_brush.queue(Section {
+                        screen_position: (paragraph.position.x, paragraph.position.y),
+                        bounds: (self.sc_desc.width as f32, self.sc_desc.height as f32),
+                        layout: Layout::Wrap {
+                            line_breaker: BuiltInLineBreaker::AnyCharLineBreaker,
+                            h_align: paragraph.horizontal_alignment,
+                            v_align: paragraph.vertical_alignment,
+                        },
+                        text: paragraph
+                            .sections
+                            .iter()
+                            .map(|section| {
+                                Text::new(&section.text)
+                                    .with_color(section.color)
+                                    .with_scale(section.scale)
+                                    .with_font_id(section.font)
+                            })
+                            .collect(),
+                    });
+                }
+
+                // Draw the text!
+                self.glyph_brush
+                    .draw_queued(
+                        &self.device,
+                        &mut self.staging_belt,
+                        &mut encoder,
+                        &frame.output.view,
+                        self.sc_desc.width,
+                        self.sc_desc.height,
+                    )
+                    .expect("Draw queued");
+
+                // Submit the work!
+                self.staging_belt.finish();
             }
-
-            // Draw the text!
-            self.glyph_brush
-                .draw_queued(
-                    &self.device,
-                    &mut self.staging_belt,
-                    &mut encoder,
-                    &frame.output.view,
-                    self.sc_desc.width,
-                    self.sc_desc.height,
-                )
-                .expect("Draw queued");
-
-            // Submit the work!
-            self.staging_belt.finish();
+            encoder.pop_debug_group();
         }
-        encoder.pop_debug_group();
         self.queue.submit(std::iter::once(encoder.finish()));
-        // Recall unused staging buffers
-        use futures::task::SpawnExt;
 
         self.local_spawner
             .spawn(self.staging_belt.recall())

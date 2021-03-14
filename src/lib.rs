@@ -2,50 +2,51 @@
 //! This crate allows for simple rendering using WGPU.
 //! You can load and draw .obj Models and Meshes, and add lights to the world
 
-use std::path::{Path, PathBuf};
-
-pub use cgmath;
+use crate::api::lights::{RealLight, SimpleLight};
+use color_mesh::ColorMesh;
+use constants::*;
+use lines::Lines;
+use model::Model;
+use new::New;
+use render_passes::shader_compiler::ShaderCompiler;
+use render_passes::Passes;
+use std::path::PathBuf;
+use uniforms::GlobalUniforms;
+use update::Update;
+use uv_mesh::UvModel;
 use wgpu::{Buffer, SwapChain, SwapChainDescriptor, Texture};
 use wgpu_glyph::ab_glyph::InvalidFont;
 use wgpu_glyph::{ab_glyph, FontId};
-pub use wgpu_glyph::{HorizontalAlign, VerticalAlign};
 
+pub use api::lights::LightAttenuation;
 pub use api::lights::RealLightApi;
 pub use api::lights::RealLightPublic;
+pub use api::meshes::MeshApi;
 pub use camera::Camera;
 pub use camera::ViewMatrixMode;
-use color_mesh::ColorMesh;
+pub use cgmath;
 pub use color_mesh::ColorMeshInstance;
 pub use color_mesh::ColorVertex;
 pub use color_mesh::Lighting;
-use constants::*;
-pub use light::SimpleLight;
-pub use light::SimpleLightKind;
-use model::Model;
+pub use lines::Line;
+pub use lines::LineVertex;
 pub use model::ModelVertex;
-use new::New;
 pub use render::Render;
-use render_passes::shader_compiler::ShaderCompiler;
 pub use resize::Resize;
 pub use text::Paragraph;
 pub use text::TextSection;
 pub use transform::Transform;
-use uniforms::GlobalUniforms;
-use update::Update;
-use uv_mesh::UvModel;
 pub use uv_mesh::UvVertex;
-pub use lines::LineVertex;
-
-pub use lines::Line;
-use lines::Lines;
-use render_passes::Passes;
+pub use wgpu_glyph::{HorizontalAlign, VerticalAlign};
+pub use api::meshes::ColorMeshHandle;
+pub use api::meshes::UvMeshHandle;
+pub use api::meshes::ModelHandle;
 
 mod api;
 mod camera;
 mod color_mesh;
 mod constants;
 mod instance;
-mod light;
 mod lines;
 mod model;
 mod new;
@@ -69,12 +70,12 @@ pub struct WgpuRenderer {
     sc_desc: SwapChainDescriptor,
     swap_chain: SwapChain,
     global_uniforms: GlobalUniforms,
-    real_lights: Vec<light::RealLight>,
+    real_lights: Vec<RealLight>,
     lights_are_dirty: bool,
 
     color_meshes: Vec<Option<ColorMesh>>,
     uv_meshes: Vec<Option<UvModel>>,
-    models: Vec<Model>,
+    models: Vec<Option<Model>>,
     lines: Lines,
 
     passes: Passes,
@@ -92,6 +93,8 @@ pub struct WgpuRenderer {
     real_lights_storage_buffer: Buffer,
     shadow_view: wgpu::TextureView,
     shadow_sampler: wgpu::Sampler,
+    max_real_lights: u32,
+    shadow_resolution: [u32; 2],
     #[allow(dead_code)]
     shaders: ShaderCompiler,
 }
@@ -104,102 +107,8 @@ impl WgpuRenderer {
     pub fn render(&mut self) {
         Render::render(self);
     }
-    /// load a mesh with colored vertices
-    pub fn load_color_mesh(
-        &mut self,
-        vertices: Vec<ColorVertex>,
-        indices: Option<Vec<u16>>,
-    ) -> usize {
-        self.color_meshes
-            .push(Some(ColorMesh::from_vertices_and_indices(
-                &self.device,
-                vertices,
-                indices,
-            )));
-        self.color_meshes.len() - 1
-    }
-    pub fn remove_color_mesh(&mut self, mesh: usize) {
-        self.color_meshes[mesh] = None;
-    }
-    pub fn remove_uv_mesh(&mut self, mesh: usize) {
-        self.uv_meshes[mesh] = None;
-    }
-    /// get all the instance of a ColorMesh
-    pub fn color_mesh_instances(&mut self, mesh: usize) -> &mut Vec<ColorMeshInstance> {
-        if let Some(mesh) = &mut self.color_meshes[mesh] {
-            &mut mesh.instances
-        } else {
-            panic!("ColorMesh does not exist")
-        }
-    }
-    /// load a model from a obj
-    /// this is not working well, only simple models work properly
-    pub fn load_model<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        self.models
-            .push(Model::load(&self.device, &self.queue, path));
-        self.models.len() - 1
-    }
-    pub fn model_instances(&mut self, model: usize) -> &mut Vec<Transform> {
-        &mut self.models[model].instances
-    }
-    /// update the instances of a Model
-    /// this has to be called in order for any changes to take effect
-    pub fn update_model(&mut self, model: usize) {
-        self.models[model].update(&self.device);
-    }
-    /// update the instances of a ColorMesh
-    /// this has to be called in order for any changes to take effect
-    pub fn update_color_mesh(&mut self, mesh: usize) {
-        if let Some(mesh) = &mut self.color_meshes[mesh] {
-            mesh.update(&self.device)
-        }
-    }
-    /// load a UvMesh
-    /// UvMesh like ColorMesh but using a texture and uv coordinates instead of colors in the vertices
-    pub fn load_uv_mesh<P: AsRef<Path>>(
-        &mut self,
-        vertices: Vec<UvVertex>,
-        indices: Option<Vec<u16>>,
-        texture: P,
-    ) -> usize {
-        self.uv_meshes.push(Some(UvModel::new(
-            vertices,
-            indices,
-            &self.device,
-            &self.queue,
-            texture,
-        )));
-        self.uv_meshes.len() - 1
-    }
-    /// get all the instance of a UvMesh
-    pub fn uv_mesh_instances(&mut self, mesh: usize) -> &mut Vec<Transform> {
-        if let Some(mesh) = &mut self.uv_meshes[mesh] {
-            &mut mesh.instances
-        } else {
-            panic!("UvMesh does not exist")
-        }
-    }
     pub fn simple_lights(&mut self) -> &mut Vec<SimpleLight> {
         &mut self.simple_lights
-    }
-    /// update the instances of a UVMesh
-    /// this has to be called in order for any changes to take effect
-    pub fn update_uv_mesh(&mut self, mesh: usize) {
-        if let Some(uv_mesh) = &mut self.uv_meshes[mesh] {
-            uv_mesh.update(&self.device);
-        }
-    }
-    /// Write a slice of bytes to the texture of a uv_mesh.
-    /// When the size of the new texture is greater than the old one a new texture will have to be created. This is a bit slower.
-    pub fn write_raw_texture_to_uv_mesh(&mut self, mesh: usize, size: (u32, u32), data: &[u8]) {
-        if let Some(mesh) = self.uv_meshes[mesh].as_mut() {
-            if mesh
-                .diffuse_texture
-                .write_raw(&self.device, &self.queue, size, data)
-            {
-                mesh.update_texture(&self.device);
-            }
-        }
     }
     /// get access to the camera
     pub fn camera(&mut self) -> &mut Camera {
@@ -227,9 +136,5 @@ impl WgpuRenderer {
     /// The default is on
     pub fn enable_lighting(&mut self, enabled: bool) {
         self.global_uniforms.lighting_enabled = if enabled { 1 } else { 0 };
-    }
-    /// get access to all lines
-    pub fn lines(&mut self) -> &mut Vec<Line> {
-        self.lines.lines()
     }
 }

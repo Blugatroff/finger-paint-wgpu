@@ -201,7 +201,7 @@ fn fs_main() {
             const d: f32 = distance(light.pos.xyz, in_position_fs.xyz);
             const attenuation: f32 = 1.0 / (light.constant + light.linear * d + light.quadratic * (d * d));
 
-            color = color + ((shadow * (diffuse + specular)) * light.color) * attenuation;
+            color = color + ((shadow * (diffuse + specular)) * vec4<f32>(light.color.xyz, 1.0)) * attenuation * light.color.w;
             //color = color + light.color * shadow;
             continuing {
                 i = i + 1u;
@@ -234,7 +234,7 @@ fn fs_main() {
             const reflect_dir: vec3<f32> = rf(-light_dir, normal);
             const spec: f32 = pow(max(dot(view_dir, reflect_dir), 0.0), f_specular_spread_in);
             const specular: f32 = f_specular_strength_in * spec;
-            color = color + (diffuse + specular) * light.color * light.color.w * attenuation;
+            color = color + (diffuse + specular) * vec4<f32>(light.color.xyz, 1.0) * light.color.w * attenuation;
 
             continuing {
                 i = i + 1u;

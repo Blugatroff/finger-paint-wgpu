@@ -116,14 +116,14 @@ void main() {
             float diffuse = max(0.0, dot(normal, light_dir));
 
             // specular lighting
-            vec3 reflect_dir = reflect(-light_dir, normal);
+            vec3 reflect_dir = normalize(reflect(-light_dir, normal));
 
             float specular = pow(max(dot(view_dir, reflect_dir), 0.0), 32);
 
             float d = distance(light.pos.xyz, in_position.xyz);
             float attenuation = 1.0 / (light.constant + light.linear * d + light.quadratic * (d * d));
 
-            color += shadow * (diffuse + specular) * vec4(light.color.xyz, 1.0);
+            color += shadow * (diffuse + specular) * vec4(light.color.xyz, 1.0) * attenuation * light.color.w;
         }
 
         for (int i = 0; i < num_lights.y; ++i) {

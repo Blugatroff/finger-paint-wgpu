@@ -1,9 +1,6 @@
 use cgmath::{Matrix3, Point3, Vector3};
 use finger_paint_wgpu::cgmath::{SquareMatrix, Vector2};
-use finger_paint_wgpu::{
-    Camera, HorizontalAlign, Paragraph, Resize, TextSection, Transform, UvVertex, VerticalAlign,
-    ViewMatrixMode, WgpuRenderer,
-};
+use finger_paint_wgpu::{Camera, HorizontalAlign, Paragraph, Resize, TextSection, Transform, UvVertex, VerticalAlign, ViewMatrixMode, WgpuRenderer, MeshApi, UvMeshHandle};
 use simple_winit::input::Input;
 use simple_winit::InputEvent;
 use std::time::Duration;
@@ -69,24 +66,13 @@ pub struct State {
     time: f32,
     average_frame_time: f32,
     canvas: Canvas,
-    grass_block: usize,
+    plane: UvMeshHandle,
 }
 
 impl State {
     pub fn new(window: &simple_winit::winit::window::Window) -> Self {
-        Self {
-            renderer: WgpuRenderer::new(window, Some(std::path::PathBuf::from("./"))),
-            time: 0.0,
-            average_frame_time: 1.0,
-            grass_block: 0,
-            canvas: Canvas::new(20, 20),
-        }
-    }
-}
-
-impl simple_winit::WindowLoop for State {
-    fn init(&mut self) {
-        let plane = self.renderer.load_uv_mesh(
+        let mut renderer = WgpuRenderer::new(window, Some(std::path::PathBuf::from("./")));
+        let plane = renderer.load_uv_mesh(
             vec![
                 UvVertex::new(
                     Vector3::new(0.0, 0.0, 0.0),
@@ -112,13 +98,24 @@ impl simple_winit::WindowLoop for State {
             Some(vec![2, 1, 0, 1, 2, 3]),
             "",
         );
-        self.renderer.uv_mesh_instances(plane).push(Transform {
+        Self {
+            renderer,
+            time: 0.0,
+            average_frame_time: 1.0,
+            plane,
+            canvas: Canvas::new(20, 20),
+        }
+    }
+}
+
+impl simple_winit::WindowLoop for State {
+    fn init(&mut self) {
+        self.renderer.uv_mesh_instances(&self.plane).push(Transform {
             position: Vector3::new(0.0, 1.0, 2.0),
             rotation: Matrix3::identity(),
             scale: Vector3::new(1.0, 1.0, 1.0),
         });
-        self.renderer.update_uv_mesh(plane);
-
+        self.renderer.update_uv_mesh(&self.plane);
         self.renderer.paragraphs().push(Paragraph {
             vertical_alignment: VerticalAlign::Top,
             horizontal_alignment: HorizontalAlign::Left,
@@ -154,7 +151,6 @@ impl simple_winit::WindowLoop for State {
         self.time += dt;
         if let Some(size) = input.resized() {
             self.renderer.resize(size);
-            //self.canvas.resize(size.0 as u32, size.1 as u32);
         }
         self.renderer.paragraphs()[0].sections[0].text = format!(
             "frametime: {}ms\nfps: {}",
@@ -171,7 +167,7 @@ impl simple_winit::WindowLoop for State {
         self.canvas.write_pixel(x, y, [255, 0, 0, 255]);
 
         self.renderer.write_raw_texture_to_uv_mesh(
-            self.grass_block,
+            &self.plane,
             self.canvas.size(),
             self.canvas.raw_data(),
         );

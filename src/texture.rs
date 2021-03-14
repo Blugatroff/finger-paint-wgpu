@@ -2,10 +2,10 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
-    pub size: (u32, u32)
+    pub size: (u32, u32),
 }
 use std::path::Path;
-use wgpu::{Queue, Device};
+use wgpu::{Device, Queue};
 
 impl Texture {
     pub fn load<P: AsRef<Path>>(
@@ -63,12 +63,8 @@ impl Texture {
             );
         }
         let rgba = raw.as_slice();
-        let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
-            depth: 1,
-        };
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        Self::from_raw(device, queue, dimensions, rgba, min_filter, mag_filter)
+        /*let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
             mip_level_count: 1,
@@ -109,11 +105,17 @@ impl Texture {
             view,
             sampler,
             size: dimensions
-        }
+        }*/
     }
     /// write raw bytes to the texture
     /// if the size of the new texture is greater than the previous a new texture is created and this method returns true
-    pub fn write_raw(&mut self, device: &Device, queue: &Queue, size: (u32, u32), data: &[u8]) -> bool {
+    pub fn write_raw(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        size: (u32, u32),
+        data: &[u8],
+    ) -> bool {
         if data.len() as u32 != size.0 * size.1 * 4 {
             panic!(
                 "raw data for texture is not compatible with format. Got {} expected: {}",
@@ -122,7 +124,8 @@ impl Texture {
             )
         }
 
-        let new_texture: bool = data.len() as u32 > self.size.0 * self.size.1 * std::mem::size_of::<[u8; 4]>() as u32;
+        let new_texture: bool =
+            data.len() as u32 > self.size.0 * self.size.1 * std::mem::size_of::<[u8; 4]>() as u32;
 
         if new_texture {
             self.texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -159,9 +162,64 @@ impl Texture {
             },
         );
         if new_texture {
-            self.view = self.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.view = self
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
         }
         new_texture
+    }
+    pub fn from_raw(
+        device: &Device,
+        queue: &Queue,
+        size: (u32, u32),
+        data: &[u8],
+        min_filter: wgpu::FilterMode,
+        mag_filter: wgpu::FilterMode,
+    ) -> Self {
+        let extent = wgpu::Extent3d {
+            width: size.0,
+            height: size.1,
+            depth: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+        queue.write_texture(
+            wgpu::TextureCopyView {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            data,
+            wgpu::TextureDataLayout {
+                offset: 0,
+                bytes_per_row: 4 * size.0,
+                rows_per_image: size.1,
+            },
+            extent,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter,
+            min_filter,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+        }
     }
 }
 #[allow(dead_code)]

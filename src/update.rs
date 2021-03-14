@@ -1,8 +1,8 @@
-use crate::light::{RealLightRaw, SimpleLightRaw};
 #[cfg(feature = "hot_reload_shader")]
 use crate::render_passes::shader_reload::ShaderHotReload;
 use crate::WgpuRenderer;
 use wgpu::util::DeviceExt;
+use crate::api::lights::{SimpleLightRaw, RealLightRaw};
 
 pub trait Update {
     fn update(&mut self);

@@ -56,7 +56,6 @@ impl ShaderCompiler {
         };
     }
     pub fn get_shader(&self, name: &str) -> &ShaderModule {
-        dbg!(name);
         &self.shaders.get(name).unwrap().module
     }
     #[cfg(feature = "hot_reload_shader")]
